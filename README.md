@@ -15,7 +15,7 @@ gives you the tooling around it:
 
 | | |
 |---|---|
-| **Version-aware output** | Pick a distribution (Ubuntu, Debian, RHEL/Alma/Rocky, Alpine, Arch) or a specific tool version. The compiler uses new syntax where the version has it and a working fallback where it does not, and tells you which. |
+| **Version-aware output** | Pick a distribution (Ubuntu 20.04–26.04, Debian, RHEL/Alma/Rocky, Alpine, Arch) or a specific tool version. The compiler uses new syntax where the version has it and a working fallback where it does not, and tells you which. |
 | **Four backends, one ruleset** | nftables (`nft -f`), iptables (`iptables-restore`, IPv4 + IPv6), ufw (commands + `before.rules` fragments), firewalld (`firewall-cmd` script + zone XML). |
 | **Packet simulator** | Describe a packet and see the verdict plus a step-by-step trace of every check it hit. |
 | **Audit** | Finds exposed services, any-any rules, shadowed and redundant rules, lock-out risk, broken DNS, port forwards without a forward rule. One-click fixes and a 0–100 posture score. |
@@ -77,6 +77,10 @@ Requires Node 18+. The production build is a static site (`dist/`) that can be h
   automatically where the binaries are missing or unusable.
 - During development the generated ufw commands and firewalld rich rules were also parsed with the
   upstream ufw and firewalld parsers. That check is not part of the automated suite.
+
+- Emitted syntax was read against the current manual pages: `nft(8)` 1.1.6, `iptables(8)` and
+  `iptables-extensions(8)` 1.8.11, `ufw(8)` 0.36.2, and `firewall-cmd(1)`,
+  `firewalld.richlanguage(5)`, `firewalld.policy(5)` 2.3.1, plus the firewalld 2.5.2 source tree.
 
 Nothing here has been applied to a live production host by the test suite. Use the safe-apply
 script, and keep console access the first time you load a ruleset on a remote machine.

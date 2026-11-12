@@ -5,7 +5,7 @@ import { diffLines, diffStats } from '../../core/diff';
 import { importIptablesSave, type ImportReport } from '../../core/import/iptablesSave';
 import { grade, lint, score } from '../../core/lint';
 import { coerceProject, emptyProject } from '../../core/model';
-import { CAPABILITIES, DISTROS, TOOL_LABEL, TOOLS, VERSIONS, capsFor, compareVersions, type Tool } from '../../core/targets';
+import { CAPABILITIES, DISTROS, DOCS_CHECKED, TOOL_LABEL, TOOLS, VERSIONS, capsFor, compareVersions, type Tool } from '../../core/targets';
 import { TEMPLATES } from '../../core/templates';
 import { copyText, download, shareUrl, useStore, useTarget } from '../../store/useStore';
 import { DiffView } from '../components/CodeView';
@@ -110,6 +110,9 @@ export function VersionsPage() {
           </table>
         </div>
         <p className="mt-3 text-[12px] text-mute">
+          Syntax last checked against: {DOCS_CHECKED.map((d) => `${d.pages} ${d.version}`).join('; ')}.
+        </p>
+        <p className="mt-1.5 text-[12px] text-mute">
           Newest versions known here: {TOOLS.map((t) => `${TOOL_LABEL[t]} ${[...VERSIONS[t]].sort(compareVersions).pop()}`).join(', ')}. For anything else, choose “Custom tool version” and pick the closest release at or below yours.
         </p>
       </Panel>

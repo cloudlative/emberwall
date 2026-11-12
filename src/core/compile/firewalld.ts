@@ -85,7 +85,7 @@ function toRich(rr: ResolvedRule, priority: number | undefined, d: Diags): Rich[
 
   if (r.states && r.states.length > 0) d.unsupported(`"${r.name}": firewalld rich rules cannot match connection state; the state match is left out.`, r.id);
   const limit = r.rateLimit && r.action === 'accept' ? `${r.rateLimit.rate}/${r.rateLimit.per[0]}` : undefined;
-  if (limit && r.rateLimit!.burst > 0) d.note(`"${r.name}": the burst value is not passed to firewalld (rich-rule limits take a rate only).`, r.id);
+  if (limit && r.rateLimit!.burst > 0) d.note(`"${r.name}": the burst value is not passed to firewalld: no release up to 2.5.2 accepts a burst on rich-rule limits.`, r.id);
 
   for (const [family, view] of views) {
     const elements: (Element | undefined)[] = [];

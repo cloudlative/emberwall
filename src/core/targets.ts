@@ -48,9 +48,9 @@ export const CAPABILITIES: Capability[] = [
 
 export const VERSIONS: Record<Tool, string[]> = {
   iptables: ['1.4.21', '1.6.1', '1.8.4', '1.8.5', '1.8.7', '1.8.9', '1.8.10', '1.8.11'],
-  nftables: ['0.9.0', '0.9.3', '0.9.8', '1.0.2', '1.0.4', '1.0.6', '1.0.9', '1.1.3', '1.1.5'],
+  nftables: ['0.9.0', '0.9.3', '0.9.8', '1.0.2', '1.0.4', '1.0.6', '1.0.9', '1.1.3', '1.1.5', '1.1.6'],
   ufw: ['0.33', '0.35', '0.36', '0.36.1', '0.36.2'],
-  firewalld: ['0.6.3', '0.8.2', '0.9.3', '0.9.11', '1.1.1', '1.3.3', '1.3.4', '2.1.1', '2.3.1', '2.4.0'],
+  firewalld: ['0.6.3', '0.8.2', '0.9.3', '0.9.11', '1.1.1', '1.3.3', '1.3.4', '2.1.1', '2.3.1', '2.4.0', '2.5.2'],
 };
 
 export type Persistence = 'debian' | 'rhel' | 'alpine' | 'arch' | 'generic';
@@ -71,6 +71,7 @@ export interface Distro {
 
 // Package versions were read from each distro's package index (RHEL rows from CentOS Stream specs).
 export const DISTROS: Distro[] = [
+  { id: 'ubuntu-26.04', name: 'Ubuntu 26.04 LTS', tools: { iptables: '1.8.11', nftables: '1.1.6', ufw: '0.36.2', firewalld: '2.3.1' }, defaultTool: 'ufw', persistence: 'debian', iptablesBackend: 'nft' },
   { id: 'ubuntu-24.04', name: 'Ubuntu 24.04 LTS', tools: { iptables: '1.8.10', nftables: '1.0.9', ufw: '0.36.2', firewalld: '2.1.1' }, defaultTool: 'ufw', persistence: 'debian', iptablesBackend: 'nft' },
   { id: 'ubuntu-22.04', name: 'Ubuntu 22.04 LTS', tools: { iptables: '1.8.7', nftables: '1.0.2', ufw: '0.36.1', firewalld: '1.1.1' }, defaultTool: 'ufw', persistence: 'debian', iptablesBackend: 'nft' },
   { id: 'ubuntu-20.04', name: 'Ubuntu 20.04 LTS', tools: { iptables: '1.8.4', nftables: '0.9.3', ufw: '0.36', firewalld: '0.8.2' }, defaultTool: 'ufw', persistence: 'debian', iptablesBackend: 'legacy' },
@@ -152,4 +153,12 @@ export function resolveTarget(sel: TargetSelection): Target {
   };
 }
 
-export const DEFAULT_SELECTION: TargetSelection = { distro: 'ubuntu-24.04', tool: 'nftables', version: '1.0.9' };
+export const DEFAULT_SELECTION: TargetSelection = { distro: 'ubuntu-26.04', tool: 'nftables', version: '1.1.6' };
+
+/** Manual pages the emitted syntax was last checked against (Ubuntu 26.04 manpages, upstream sources). */
+export const DOCS_CHECKED: { tool: Tool; pages: string; version: string }[] = [
+  { tool: 'nftables', pages: 'nft(8)', version: '1.1.6' },
+  { tool: 'iptables', pages: 'iptables(8), iptables-extensions(8)', version: '1.8.11' },
+  { tool: 'ufw', pages: 'ufw(8), upstream ChangeLog', version: '0.36.2' },
+  { tool: 'firewalld', pages: 'firewall-cmd(1), firewalld.richlanguage(5), firewalld.policy(5)', version: '2.3.1 (source tree 2.5.2)' },
+];
