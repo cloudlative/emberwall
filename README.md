@@ -57,6 +57,8 @@ The in-app **Version matrix** page shows the same table per release, plus what e
 ## Run it
 
 ```bash
+git clone https://github.com/cloudlative/emberwall.git
+cd emberwall
 npm install
 npm run dev        # http://localhost:5173
 ```

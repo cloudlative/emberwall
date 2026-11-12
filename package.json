@@ -5,6 +5,11 @@
   "type": "module",
   "description": "Visual, version-aware firewall builder for iptables, nftables, ufw and firewalld",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cloudlative/emberwall.git"
+  },
+  "homepage": "https://github.com/cloudlative/emberwall#readme",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
