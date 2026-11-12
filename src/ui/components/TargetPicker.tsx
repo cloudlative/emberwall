@@ -1,10 +1,10 @@
 import { DISTROS, TOOL_LABEL, VERSIONS, latestVersion, toolsFor, type Tool } from '../../core/targets';
-import { useStore, useTarget } from '../../store/useStore';
+import { useSelection, useStore, useTarget } from '../../store/useStore';
 import { Segmented } from './ui';
 
 /** Distro preset or hand-picked tool + version. Drives every compiled output in the app. */
 export function TargetPicker({ compact = false }: { compact?: boolean }) {
-  const selection = useStore((s) => s.selection);
+  const selection = useSelection();
   const setSelection = useStore((s) => s.setSelection);
   const target = useTarget();
   const tools = toolsFor(selection);

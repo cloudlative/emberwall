@@ -5,7 +5,7 @@ import { DIRECTION_LABEL, type Direction } from '../../core/model';
 import { portLabel } from '../../core/net';
 import { resolveAll } from '../../core/resolve';
 import { CAPABILITIES } from '../../core/targets';
-import { useCompiled, useFindings, useStore, useTarget } from '../../store/useStore';
+import { useCompiled, useFindings, useStore, useTarget, useEffectiveProject } from '../../store/useStore';
 import { ActionBadge, PageHeader, Panel, SeverityBadge, Stat } from '../components/ui';
 import { TargetPicker } from '../components/TargetPicker';
 
@@ -30,7 +30,7 @@ function ScoreRing({ value }: { value: number }) {
 }
 
 export function DashboardPage() {
-  const project = useStore((s) => s.project);
+  const project = useEffectiveProject();
   const setPage = useStore((s) => s.setPage);
   const findings = useFindings();
   const compiled = useCompiled();

@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { uid, type Zone } from '../../core/model';
 import { parseCidr } from '../../core/net';
 import { buildAxes, reachability, runTests } from '../../core/reach';
-import { useStore } from '../../store/useStore';
+import { useStore, useEffectiveProject } from '../../store/useStore';
 import { ActionBadge, Empty, PageHeader, Panel, Segmented, Stat, TagInput } from '../components/ui';
 
 const TRUST_LABEL: Record<Zone['trust'], string> = { untrusted: 'Outside', dmz: 'DMZ', trusted: 'Trusted' };
@@ -55,7 +55,7 @@ export function ZonesPage() {
 }
 
 export function ReachabilityPage() {
-  const project = useStore((s) => s.project);
+  const project = useEffectiveProject();
   const { axes, rows } = useMemo(() => {
     const a = buildAxes(project);
     return { axes: a, rows: reachability(project, a) };

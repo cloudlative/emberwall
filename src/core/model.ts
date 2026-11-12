@@ -57,6 +57,16 @@ export interface Blocklist {
   outbound?: boolean;
 }
 
+/** One machine in a fleet. Rules apply to every host unless they name specific hosts. */
+export interface Host {
+  id: string;
+  name: string;
+  /** Address or DNS name, used in the generated inventory. */
+  address?: string;
+  note?: string;
+  target: { distro: string; tool: 'iptables' | 'nftables' | 'ufw' | 'firewalld'; version: string };
+}
+
 export interface PolicyTest {
   id: string;
   name: string;
@@ -99,6 +109,8 @@ export interface Rule {
   /** Zone ids; expand to the zone's interfaces and networks. */
   srcZone?: string;
   dstZone?: string;
+  /** Host ids this rule is limited to. Empty or missing = every host. */
+  hosts?: string[];
 }
 
 export type NatKind = 'masquerade' | 'snat' | 'dnat';
@@ -161,6 +173,7 @@ export interface Project {
   blocklists: Blocklist[];
   /** Ids of enabled kernel hardening settings (see sysctl.ts). */
   hardening: string[];
+  hosts: Host[];
 }
 
 let counter = 0;
@@ -213,6 +226,7 @@ export function emptyProject(name = 'Untitled firewall'): Project {
     tests: [],
     blocklists: [],
     hardening: [],
+    hosts: [],
   };
 }
 
@@ -259,6 +273,13 @@ export function coerceProject(raw: unknown): Project {
       outbound: !!b.outbound || undefined,
     })),
     hardening: arr(r.hardening),
+    hosts: (r.hosts ?? []).filter((h: any) => h && h.target).map((h: any) => ({
+      id: String(h.id ?? uid('h')),
+      name: String(h.name ?? 'host'),
+      address: typeof h.address === 'string' && h.address ? h.address : undefined,
+      note: typeof h.note === 'string' && h.note ? h.note : undefined,
+      target: { distro: String(h.target.distro ?? 'custom'), tool: h.target.tool, version: String(h.target.version ?? '') },
+    })),
     tests: Array.isArray(r.tests) ? r.tests.filter((t: any) => t && t.packet).map((t: any) => ({ ...t, id: String(t.id ?? uid('t')) })) : [],
   };
 }

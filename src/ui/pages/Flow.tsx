@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowRight, Cpu, Globe } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { DIRECTION_LABEL, type Direction } from '../../core/model';
-import { useStore } from '../../store/useStore';
+import { useStore, useEffectiveProject } from '../../store/useStore';
 import { ActionBadge, PageHeader } from '../components/ui';
 
 function Node({ icon, title, sub }: { icon: ReactNode; title: string; sub: string }) {
@@ -24,7 +24,7 @@ function Step({ label, verdict, muted, onClick }: { label: string; verdict?: 'ac
 
 /** The path a packet takes through netfilter, with this project's rules placed on it. */
 export function FlowPage() {
-  const project = useStore((s) => s.project);
+  const project = useEffectiveProject();
   const { selectRule, setPage } = useStore.getState();
   const opt = project.options;
   const dnat = project.nat.filter((n) => n.enabled && n.kind === 'dnat');

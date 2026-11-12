@@ -1,5 +1,5 @@
 import {
-  ArrowLeftRight, Ban, BadgeCheck, Camera, Check, Cpu, ClipboardCheck, Columns2, Command, FlaskConical, FolderInput, Gauge, Grid3x3, Hammer, Info, Layers, LayoutDashboard, LayoutTemplate,
+  ArrowLeftRight, Ban, BadgeCheck, Camera, Check, Cpu, FileSearch, Server, Share2, ClipboardCheck, Columns2, Command, FlaskConical, FolderInput, Gauge, Grid3x3, Hammer, Info, Layers, LayoutDashboard, LayoutTemplate,
   ListChecks, Moon, Network, Plus, Redo2, Search, ShieldAlert, Sun, Table2, Undo2, Waypoints, XCircle,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -13,6 +13,7 @@ import { TargetPicker } from './components/TargetPicker';
 import { AuditPage } from './pages/Audit';
 import { BuildPage, ComparePage } from './pages/Build';
 import { DashboardPage } from './pages/Dashboard';
+import { FleetPage, LogsPage, TopologyPage } from './pages/Fleet';
 import { FlowPage } from './pages/Flow';
 import { BlocklistsPage, CompliancePage, HardeningPage } from './pages/Harden';
 import { SnapshotsPage, TemplatesPage, TransferPage, VersionsPage } from './pages/Library';
@@ -46,16 +47,20 @@ const NAV: NavItem[] = [
   { id: 'audit', label: 'Audit', icon: <ShieldAlert size={16} />, group: 'Verify' },
   { id: 'compliance', label: 'Compliance', icon: <BadgeCheck size={16} />, group: 'Verify' },
   { id: 'flow', label: 'Packet flow', icon: <Waypoints size={16} />, group: 'Verify' },
+  { id: 'topology', label: 'Topology', icon: <Share2 size={16} />, group: 'Verify' },
+  { id: 'fleet', label: 'Fleet', icon: <Server size={16} />, group: 'Operate' },
+  { id: 'logs', label: 'Log analyzer', icon: <FileSearch size={16} />, group: 'Operate' },
   { id: 'templates', label: 'Templates', icon: <LayoutTemplate size={16} />, group: 'Library' },
   { id: 'snapshots', label: 'Snapshots', icon: <Camera size={16} />, group: 'Library' },
   { id: 'transfer', label: 'Import / export', icon: <FolderInput size={16} />, group: 'Library' },
 ];
 
-const PAGES: Record<PageId, () => JSX.Element> = {
+const PAGES: Partial<Record<PageId, () => JSX.Element>> = {
   dashboard: DashboardPage, rules: RulesPage, nat: NatPage, objects: ObjectsPage, build: BuildPage, compare: ComparePage,
   versions: VersionsPage, simulator: SimulatorPage, audit: AuditPage, flow: FlowPage, templates: TemplatesPage,
   snapshots: SnapshotsPage, transfer: TransferPage, zones: ZonesPage, reach: ReachabilityPage, tests: TestsPage,
   blocklists: BlocklistsPage, hardening: HardeningPage, compliance: CompliancePage,
+  fleet: FleetPage, topology: TopologyPage, logs: LogsPage,
 };
 
 function Logo() {
@@ -186,6 +191,9 @@ export function App() {
   const [palette, setPalette] = useState(false);
   const urgent = findings.filter((f) => f.severity === 'critical' || f.severity === 'high').length;
   const project = useStore((st) => st.project);
+  const hosts = project.hosts;
+  const activeHostId = useStore((st) => st.activeHostId);
+  const setActiveHost = useStore((st) => st.setActiveHost);
   const failingTests = useMemo(() => runTests(project).filter((t) => !t.pass).length, [project]);
   const s = score(findings);
 
@@ -259,6 +267,12 @@ export function App() {
             <button className="badge badge-mute normal-case" onClick={() => setPage('audit')} title="Posture score from the audit">
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: s >= 75 ? 'var(--ok)' : s >= 50 ? 'var(--warn)' : 'var(--bad)' }} /> Score {s}
             </button>
+            {hosts.length > 0 && (
+              <select aria-label="Fleet host" title="Which host's view to show" className="field !w-auto" value={activeHostId ?? ''} onChange={(e) => setActiveHost(e.target.value || null)}>
+                <option value="">All hosts (shared policy)</option>
+                {hosts.map((h) => <option key={h.id} value={h.id}>Host: {h.name}</option>)}
+              </select>
+            )}
             {failingTests > 0 && (
               <button className="badge badge-bad normal-case" onClick={() => setPage('tests')}>{failingTests} test{failingTests > 1 ? 's' : ''} failing</button>
             )}

@@ -24,7 +24,7 @@ export function RuleEditor() {
     else {
       const found = project.rules.find((r) => r.id === editing) ?? null;
       setDraft(found);
-      setAdvanced(!!found && !!(found.srcPorts?.length || found.srcMac || found.connLimit || found.schedule || found.mark || found.srcZone || found.dstZone));
+      setAdvanced(!!found && !!(found.srcPorts?.length || found.srcMac || found.connLimit || found.schedule || found.mark || found.srcZone || found.dstZone || found.hosts?.length));
     }
     // Only re-seed when a different rule is opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -197,6 +197,21 @@ export function RuleEditor() {
             {draft.direction !== 'out' && (
               <Field label="Source MAC address">
                 <input className="field font-mono" value={draft.srcMac ?? ''} placeholder="aa:bb:cc:dd:ee:ff" onChange={(e) => set({ srcMac: e.target.value.trim() || undefined })} />
+              </Field>
+            )}
+            {project.hosts.length > 0 && (
+              <Field label="Hosts" hint="Leave all unselected to apply the rule to every host." className="sm:col-span-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {project.hosts.map((h) => {
+                    const on = draft.hosts?.includes(h.id) ?? false;
+                    return (
+                      <button key={h.id} type="button" aria-pressed={on} className={`chip !py-1 ${on ? '!border-ember-400/70 text-ink' : 'text-mute'}`} onClick={() => {
+                        const next = on ? (draft.hosts ?? []).filter((x) => x !== h.id) : [...(draft.hosts ?? []), h.id];
+                        set({ hosts: next.length > 0 ? next : undefined });
+                      }}>{h.name}</button>
+                    );
+                  })}
+                </div>
               </Field>
             )}
             <Field label="Packet mark">

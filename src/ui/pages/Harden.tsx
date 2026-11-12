@@ -4,7 +4,7 @@ import { assess, PROFILES } from '../../core/compliance';
 import { uid, type Blocklist } from '../../core/model';
 import { parseCidr } from '../../core/net';
 import { HARDENING, RECOMMENDED_HARDENING } from '../../core/sysctl';
-import { useStore, useTarget } from '../../store/useStore';
+import { useStore, useTarget, useEffectiveProject } from '../../store/useStore';
 import { OutputPanel } from '../components/OutputPanel';
 import { Empty, Field, PageHeader, Panel, Segmented, Stat, Switch, TagInput } from '../components/ui';
 
@@ -94,7 +94,7 @@ export function HardeningPage() {
 }
 
 export function CompliancePage() {
-  const project = useStore((s) => s.project);
+  const project = useEffectiveProject();
   const target = useTarget();
   const [profileId, setProfileId] = useState(PROFILES[0].id);
   const report = useMemo(() => assess(project, profileId), [project, profileId]);

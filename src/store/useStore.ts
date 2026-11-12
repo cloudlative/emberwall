@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { compile, type CompileResult } from '../core/compile';
 import { lint, type Finding } from '../core/lint';
+import { projectForHost } from '../core/fleet';
 import { coerceProject, uid, type Project } from '../core/model';
 import { DEFAULT_SELECTION, resolveTarget, type Target, type TargetSelection } from '../core/targets';
 import { TEMPLATES } from '../core/templates';
@@ -11,7 +12,7 @@ import { TEMPLATES } from '../core/templates';
 export type PageId =
   | 'dashboard' | 'rules' | 'nat' | 'objects' | 'build' | 'compare' | 'simulator'
   | 'audit' | 'flow' | 'versions' | 'templates' | 'snapshots' | 'transfer' | 'zones' | 'reach' | 'tests'
-  | 'blocklists' | 'hardening' | 'compliance';
+  | 'blocklists' | 'hardening' | 'compliance' | 'fleet' | 'topology' | 'logs' | 'targets' | 'assistant';
 
 export interface Snapshot {
   id: string;
@@ -37,6 +38,9 @@ interface State {
   page: PageId;
   selectedRuleId: string | null;
   editingRuleId: string | null;
+  /** Fleet: the host whose view is shown. null = the shared policy with the global target. */
+  activeHostId: string | null;
+  setActiveHost: (id: string | null) => void;
   toasts: Toast[];
   /** Applies a change to the project and records it for undo. */
   update: (fn: (p: Project) => Project) => void;
@@ -69,6 +73,8 @@ export const useStore = create<State>()(
       page: 'dashboard',
       selectedRuleId: null,
       editingRuleId: null,
+      activeHostId: null,
+      setActiveHost: (activeHostId) => set({ activeHostId }),
       toasts: [],
       update: (fn) =>
         set((s) => {
@@ -87,7 +93,13 @@ export const useStore = create<State>()(
           if (s.future.length === 0) return s;
           return { project: s.future[0], past: [...s.past, s.project], future: s.future.slice(1) };
         }),
-      setSelection: (sel) => set((s) => ({ selection: { ...s.selection, ...sel } })),
+      // With a fleet host in view, the target picker edits that host's target.
+      setSelection: (sel) =>
+        set((s) => {
+          const host = s.project.hosts.find((h) => h.id === s.activeHostId);
+          if (!host) return { selection: { ...s.selection, ...sel } };
+          return { project: { ...s.project, hosts: s.project.hosts.map((h) => (h.id === host.id ? { ...h, target: { ...h.target, ...sel } } : h)) } };
+        }),
       setTheme: (theme) => set({ theme }),
       setPage: (page) => set({ page }),
       selectRule: (selectedRuleId) => set({ selectedRuleId }),
@@ -126,19 +138,33 @@ export const useStore = create<State>()(
   ),
 );
 
-export function useTarget(): Target {
+/** The target selection in effect: the active fleet host's, or the global one. */
+export function useSelection(): TargetSelection {
   const selection = useStore((s) => s.selection);
+  const hostTarget = useStore((s) => s.project.hosts.find((h) => h.id === s.activeHostId)?.target);
+  return hostTarget ?? selection;
+}
+
+export function useTarget(): Target {
+  const selection = useSelection();
   return useMemo(() => resolveTarget(selection), [selection]);
 }
 
-export function useCompiled(): CompileResult {
+/** The project as the active fleet host sees it (the whole project when no host is selected). */
+export function useEffectiveProject(): Project {
   const project = useStore((s) => s.project);
+  const hostId = useStore((s) => s.activeHostId);
+  return useMemo(() => projectForHost(project, hostId), [project, hostId]);
+}
+
+export function useCompiled(): CompileResult {
+  const project = useEffectiveProject();
   const target = useTarget();
   return useMemo(() => compile(project, target), [project, target]);
 }
 
 export function useFindings(): Finding[] {
-  const project = useStore((s) => s.project);
+  const project = useEffectiveProject();
   return useMemo(() => lint(project), [project]);
 }
 

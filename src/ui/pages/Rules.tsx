@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, Clock, Copy, FileText, Gauge, GripVertical, ListPlus, Pencil, Plus, Trash2, Users } from 'lucide-react';
 import { useState } from 'react';
+import { appliesTo } from '../../core/fleet';
 import { DIRECTION_LABEL, uid, type Direction, type Policy, type Project, type Rule } from '../../core/model';
 import { portLabel } from '../../core/net';
 import { useStore } from '../../store/useStore';
@@ -32,6 +33,7 @@ function OptionToggle({ k, label, hint }: { k: keyof Project['options']; label: 
 function RuleRow({ rule, index, count, onDropOn }: { rule: Rule; index: number; count: number; onDropOn: (draggedId: string) => void }) {
   const project = useStore((s) => s.project);
   const selected = useStore((s) => s.selectedRuleId === rule.id);
+  const activeHostId = useStore((s) => s.activeHostId);
   const { update, selectRule, editRule } = useStore.getState();
   const [over, setOver] = useState(false);
   const s = ruleSummary(rule, project);
@@ -62,7 +64,7 @@ function RuleRow({ rule, index, count, onDropOn }: { rule: Rule; index: number; 
       }}
       onClick={() => selectRule(rule.id)}
       onDoubleClick={() => editRule(rule.id)}
-      className={`tile group flex cursor-pointer items-center gap-2.5 px-2.5 py-2 transition ${rule.enabled ? '' : 'opacity-50'}`}
+      className={`tile group flex cursor-pointer items-center gap-2.5 px-2.5 py-2 transition ${rule.enabled && (!activeHostId || appliesTo(rule, activeHostId)) ? '' : 'opacity-50'}`}
       style={{
         borderColor: over ? '#ff8f5c' : selected ? 'rgba(255,143,92,0.6)' : undefined,
         background: selected ? 'rgba(255,107,53,0.1)' : undefined,
@@ -88,6 +90,7 @@ function RuleRow({ rule, index, count, onDropOn }: { rule: Rule; index: number; 
           {rule.srcZone && <span className="chip">from zone {project.zones.find((z) => z.id === rule.srcZone)?.name ?? '?'}</span>}
           {rule.dstZone && <span className="chip">to zone {project.zones.find((z) => z.id === rule.dstZone)?.name ?? '?'}</span>}
           {rule.srcMac && <span className="chip">{rule.srcMac}</span>}
+          {rule.hosts && rule.hosts.length > 0 && <span className="chip">only {rule.hosts.map((id) => project.hosts.find((h) => h.id === id)?.name ?? '?').join(', ')}</span>}
           {rule.inIface && <span className="chip">in {rule.inIface}</span>}
           {rule.outIface && <span className="chip">out {rule.outIface}</span>}
           {rule.family !== 'both' && <span className="chip">{rule.family === 'ipv4' ? 'IPv4' : 'IPv6'}</span>}

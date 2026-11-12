@@ -2,7 +2,7 @@ import { ArrowRight, Check, CircleSlash, Minus, Play, Save } from 'lucide-react'
 import { useMemo, useState } from 'react';
 import { ICMP_TYPES, uid, type ConnState, type Direction } from '../../core/model';
 import { simulate, type Packet } from '../../core/simulate';
-import { useStore } from '../../store/useStore';
+import { useStore, useEffectiveProject } from '../../store/useStore';
 import { ActionBadge, Field, PageHeader, Panel, Segmented } from '../components/ui';
 
 const PRESETS: { label: string; pkt: Partial<Packet> }[] = [
@@ -15,7 +15,7 @@ const PRESETS: { label: string; pkt: Partial<Packet> }[] = [
 ];
 
 export function SimulatorPage() {
-  const project = useStore((s) => s.project);
+  const project = useEffectiveProject();
   const [pkt, setPkt] = useState<Packet>({ direction: 'in', src: '198.51.100.20', dst: '192.0.2.10', proto: 'tcp', port: 443, state: 'new', inIface: 'eth0' });
   const set = (patch: Partial<Packet>) => setPkt((p) => ({ ...p, ...patch }));
   const result = useMemo(() => simulate(project, pkt), [project, pkt]);
