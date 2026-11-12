@@ -10,7 +10,8 @@ import { TEMPLATES } from '../core/templates';
 
 export type PageId =
   | 'dashboard' | 'rules' | 'nat' | 'objects' | 'build' | 'compare' | 'simulator'
-  | 'audit' | 'flow' | 'versions' | 'templates' | 'snapshots' | 'transfer' | 'zones' | 'reach' | 'tests';
+  | 'audit' | 'flow' | 'versions' | 'templates' | 'snapshots' | 'transfer' | 'zones' | 'reach' | 'tests'
+  | 'blocklists' | 'hardening' | 'compliance';
 
 export interface Snapshot {
   id: string;

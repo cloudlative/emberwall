@@ -1,5 +1,5 @@
 import {
-  ArrowLeftRight, Camera, Check, ClipboardCheck, Columns2, Command, FlaskConical, FolderInput, Gauge, Grid3x3, Hammer, Info, Layers, LayoutDashboard, LayoutTemplate,
+  ArrowLeftRight, Ban, BadgeCheck, Camera, Check, Cpu, ClipboardCheck, Columns2, Command, FlaskConical, FolderInput, Gauge, Grid3x3, Hammer, Info, Layers, LayoutDashboard, LayoutTemplate,
   ListChecks, Moon, Network, Plus, Redo2, Search, ShieldAlert, Sun, Table2, Undo2, Waypoints, XCircle,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -14,6 +14,7 @@ import { AuditPage } from './pages/Audit';
 import { BuildPage, ComparePage } from './pages/Build';
 import { DashboardPage } from './pages/Dashboard';
 import { FlowPage } from './pages/Flow';
+import { BlocklistsPage, CompliancePage, HardeningPage } from './pages/Harden';
 import { SnapshotsPage, TemplatesPage, TransferPage, VersionsPage } from './pages/Library';
 import { NatPage } from './pages/Nat';
 import { ObjectsPage } from './pages/Objects';
@@ -34,6 +35,8 @@ const NAV: NavItem[] = [
   { id: 'nat', label: 'NAT', icon: <ArrowLeftRight size={16} />, group: 'Design' },
   { id: 'objects', label: 'Objects', icon: <Network size={16} />, group: 'Design' },
   { id: 'zones', label: 'Zones', icon: <Layers size={16} />, group: 'Design' },
+  { id: 'blocklists', label: 'Blocklists', icon: <Ban size={16} />, group: 'Design' },
+  { id: 'hardening', label: 'Kernel hardening', icon: <Cpu size={16} />, group: 'Design' },
   { id: 'build', label: 'Build', icon: <Hammer size={16} />, group: 'Ship' },
   { id: 'compare', label: 'Compare', icon: <Columns2 size={16} />, group: 'Ship' },
   { id: 'versions', label: 'Version matrix', icon: <Table2 size={16} />, group: 'Ship' },
@@ -41,6 +44,7 @@ const NAV: NavItem[] = [
   { id: 'reach', label: 'Reachability', icon: <Grid3x3 size={16} />, group: 'Verify' },
   { id: 'tests', label: 'Policy tests', icon: <ClipboardCheck size={16} />, group: 'Verify' },
   { id: 'audit', label: 'Audit', icon: <ShieldAlert size={16} />, group: 'Verify' },
+  { id: 'compliance', label: 'Compliance', icon: <BadgeCheck size={16} />, group: 'Verify' },
   { id: 'flow', label: 'Packet flow', icon: <Waypoints size={16} />, group: 'Verify' },
   { id: 'templates', label: 'Templates', icon: <LayoutTemplate size={16} />, group: 'Library' },
   { id: 'snapshots', label: 'Snapshots', icon: <Camera size={16} />, group: 'Library' },
@@ -51,6 +55,7 @@ const PAGES: Record<PageId, () => JSX.Element> = {
   dashboard: DashboardPage, rules: RulesPage, nat: NatPage, objects: ObjectsPage, build: BuildPage, compare: ComparePage,
   versions: VersionsPage, simulator: SimulatorPage, audit: AuditPage, flow: FlowPage, templates: TemplatesPage,
   snapshots: SnapshotsPage, transfer: TransferPage, zones: ZonesPage, reach: ReachabilityPage, tests: TestsPage,
+  blocklists: BlocklistsPage, hardening: HardeningPage, compliance: CompliancePage,
 };
 
 function Logo() {
@@ -228,7 +233,7 @@ export function App() {
       <div className="relative z-10 flex h-full gap-4 p-4">
         <aside className="glass flex w-[60px] flex-none flex-col py-4 lg:w-[218px]">
           <Logo />
-          <nav className="mt-5 flex-1 space-y-4 overflow-y-auto px-2" aria-label="Main">
+          <nav className="mt-4 flex-1 space-y-2.5 overflow-y-auto px-2" aria-label="Main">
             {groups.map((g) => (
               <div key={g}>
                 <div className="mb-1 hidden px-3 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-mute/70 lg:block">{g}</div>

@@ -3,6 +3,8 @@ import { familyOf } from '../net';
 import { cartesian, orAny, resolveAll, shortId, slug, type ResolvedRule } from '../resolve';
 import type { Target } from '../targets';
 import { safeApplyScript } from './apply';
+import { activeLists, blocklistUpdater, ipsetCreate, ipsetSpecs, type ActiveList } from './blocklists';
+import { sysctlFile } from '../sysctl';
 import { BANNER, Diags, Out, type CompileResult, type OutFile, type OutLine } from './types';
 
 type Fam = 'ipv4' | 'ipv6';
@@ -202,7 +204,7 @@ export function natLines(p: Project, fam: Fam, randomFully: { snat: boolean; mas
   return o.lines;
 }
 
-function restoreFile(p: Project, rules: ResolvedRule[], fam: Fam, target: Target, d: Diags): OutLine[] {
+function restoreFile(p: Project, rules: ResolvedRule[], fam: Fam, target: Target, d: Diags, lists: ActiveList[] = []): OutLine[] {
   const o = new Out();
   const v6 = fam === 'ipv6';
   const pol = (x: 'accept' | 'drop') => x.toUpperCase();
@@ -224,6 +226,10 @@ function restoreFile(p: Project, rules: ResolvedRule[], fam: Fam, target: Target
   if (opt.allowLoopback) {
     o.push('-A INPUT -i lo -j ACCEPT').push('-A OUTPUT -o lo -j ACCEPT');
   }
+  const bl = ipsetSpecs(lists, fam);
+  for (const sp of bl.input) o.push(`-A INPUT ${sp}`);
+  for (const sp of bl.forward) o.push(`-A FORWARD ${sp}`);
+  for (const sp of bl.output) o.push(`-A OUTPUT ${sp}`);
   const prot = protectionSpecs(p);
   for (const sp of prot.early) o.push(`-A INPUT ${sp}`);
   if (opt.allowEstablished) {
@@ -299,8 +305,11 @@ export function compileIptables(p: Project, target: Target): CompileResult {
   const rules = resolveAll(p);
   for (const rr of rules) rr.problems.forEach((m) => d.invalid(`"${rr.rule.name}": ${m}`, rr.rule.id));
 
-  const v4 = restoreFile(p, rules, 'ipv4', target, d);
-  const v6 = restoreFile(p, rules, 'ipv6', target, d);
+  const lists = activeLists(p, d);
+  const v4 = restoreFile(p, rules, 'ipv4', target, d, lists);
+  const v6 = restoreFile(p, rules, 'ipv6', target, d, lists);
+  const ipsets = ipsetCreate(lists, p.options.ipv6);
+  if (lists.length > 0) d.note('Blocklists use ipset: install the ipset package. The apply script creates the sets; save them for boot with "ipset save > /etc/ipset.conf" or your distribution\'s ipset service.');
 
   const backend = target.distro?.iptablesBackend ?? (target.caps.nftBackend ? null : 'legacy');
   if (backend === 'nft') {
@@ -331,11 +340,14 @@ export function compileIptables(p: Project, target: Target): CompileResult {
     safeApplyScript({
       toolLabel: target.label,
       backup: ['iptables-save > "$BACKUP/rules.v4"', 'ip6tables-save > "$BACKUP/rules.v6"'],
-      check: ['iptables-restore --test < "$DIR/rules.v4"', 'ip6tables-restore --test < "$DIR/rules.v6"'],
+      check: [...ipsets, 'iptables-restore --test < "$DIR/rules.v4"', 'ip6tables-restore --test < "$DIR/rules.v6"'],
       apply: [...sysctl, `iptables-restore${wait} < "$DIR/rules.v4"`, `ip6tables-restore${wait} < "$DIR/rules.v6"`],
       rollback: ['iptables-restore < "$BACKUP/rules.v4"', 'ip6tables-restore < "$BACKUP/rules.v6"'],
       persist: persistHints(target),
     }),
   ];
+  files.push(...blocklistUpdater(lists, 'iptables', p.options.ipv6));
+  const sys = sysctlFile(p);
+  if (sys) files.push(sys);
   return { target, files, diagnostics: d.list };
 }

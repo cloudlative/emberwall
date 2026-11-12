@@ -28,6 +28,9 @@ gives you the tooling around it:
 | **Semantic diff** | Between two snapshots: which access opened or closed, not only which lines changed. |
 | **Attack protection** | Per-client rate limits and connection limits, SYN-flood guard, port-scan filter, auto-ban trap ports. |
 | **Advanced matches** | Source ports, MAC address, packet mark, weekly schedules. |
+| **Blocklists and geo-blocking** | Address sets dropped before everything else; kept in the project or downloaded on the server by a generated updater script and systemd timer. |
+| **Kernel hardening** | A sysctl drop-in (reverse-path filter, SYN cookies, redirects, source routing) shipped with every build. |
+| **Compliance profiles** | CIS-style, PCI DSS-style and an internet-server baseline, each control with evidence; printable to PDF. |
 | **Automation export** | Ansible playbook, Terraform (SSH push) and cloud-init user data for every build. |
 | **Line linking** | Click a rule to highlight the lines it produced; click a line to jump to its rule. |
 | **Objects** | Reusable address and port groups; nftables output turns address groups into named sets. |
@@ -89,6 +92,7 @@ Requires Node 18+. The production build is a static site (`dist/`) that can be h
   automatically where the binaries are missing or unusable.
 - During development the generated ufw commands and firewalld rich rules were also parsed with the
   upstream ufw and firewalld parsers. That check is not part of the automated suite.
+- Every generated shell script passes `sh -n`; IPv4 sysctl keys were checked against a running kernel.
 - Importer tests compile each template, import the result and require that no access changes.
 - The generated Ansible playbooks pass `ansible-playbook --syntax-check`; the Terraform file has
   not been run through `terraform validate`.
@@ -112,6 +116,11 @@ script, and keep console access the first time you load a ruleset on a remote ma
 - ufw and firewalld cannot express everything: ICMP rules and connection-state matches go to a
   `before.rules` fragment for ufw; firewalld drops per-rule interface and state matches. Each case
   is reported in the compiler notes rather than silently changed.
+- Blocklists on iptables and ufw rely on `ipset`. That syntax could not be run through
+  `iptables-restore --test` here (no `ipset` in the test environment); the nftables form was.
+  Country lists are downloaded by the server from a third-party site that Emberwall does not check.
+- Compliance profiles are Emberwall's reading of each framework's firewall-related intent. They
+  support a review; they are not official benchmark content or a certification.
 - Importers cover the common rule shapes. Negated matches, custom chains, jumps, firewalld
   services outside a built-in list and other unusual constructs are listed as skipped, not guessed.
 - Distribution versions are a snapshot; rolling releases move. Pick a custom version if yours differs.

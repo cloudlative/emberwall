@@ -2,6 +2,8 @@ import type { Direction, Project } from '../model';
 import { cartesian, orAny, resolveAll, type ResolvedRule } from '../resolve';
 import type { Target } from '../targets';
 import { safeApplyScript } from './apply';
+import { activeLists, blocklistUpdater } from './blocklists';
+import { sysctlFile } from '../sysctl';
 import { logPrefix, natFamily, natLines, ruleSpecs } from './iptables';
 import { BANNER, Diags, Out, shQuote, type CompileResult, type OutFile } from './types';
 
@@ -23,6 +25,7 @@ interface Rich {
   family?: Fam;
   src?: string;
   srcMac?: string;
+  srcIpset?: string;
   dst?: string;
   element?: Element;
   log?: string;
@@ -36,7 +39,8 @@ function richText(r: Rich): string {
   const t: string[] = ['rule'];
   if (r.priority !== undefined) t.push(`priority="${r.priority}"`);
   if (r.family) t.push(`family="${r.family}"`);
-  if (r.srcMac) t.push(`source mac="${r.srcMac}"`);
+  if (r.srcIpset) t.push(`source ipset="${r.srcIpset}"`);
+  else if (r.srcMac) t.push(`source mac="${r.srcMac}"`);
   else if (r.src) t.push(`source address="${r.src}"`);
   if (r.dst) t.push(`destination address="${r.dst}"`);
   const e = r.element;
@@ -57,7 +61,8 @@ function richText(r: Rich): string {
 function richXml(r: Rich, ind: string): string[] {
   const attrs = [r.priority !== undefined ? ` priority="${r.priority}"` : '', r.family ? ` family="${r.family}"` : ''].join('');
   const x: string[] = [`${ind}<rule${attrs}>`];
-  if (r.srcMac) x.push(`${ind}  <source mac="${r.srcMac}"/>`);
+  if (r.srcIpset) x.push(`${ind}  <source ipset="${r.srcIpset}"/>`);
+  else if (r.srcMac) x.push(`${ind}  <source mac="${r.srcMac}"/>`);
   else if (r.src) x.push(`${ind}  <source address="${r.src}"/>`);
   if (r.dst) x.push(`${ind}  <destination address="${r.dst}"/>`);
   const e = r.element;
@@ -188,6 +193,18 @@ export function compileFirewalld(p: Project, target: Target): CompileResult {
   if (opt.allowIcmp && p.policies.in === 'drop') {
     zonePre.push({ element: { kind: 'icmp', name: 'echo-request' }, action: 'accept', priority: caps.richPriority ? -31000 : undefined });
   }
+  const lists = activeLists(p, d);
+  const ipsetCmds: string[] = [];
+  for (const l of lists) {
+    for (const [fam, sfx, members] of (opt.ipv6 ? [['ipv4', 'v4', l.v4], ['ipv6', 'v6', l.v6]] : [['ipv4', 'v4', l.v4]]) as [Fam, string, string[]][]) {
+      const set = `${l.set}_${sfx}`;
+      ipsetCmds.push(`firewall-cmd --permanent --delete-ipset=${set} >/dev/null 2>&1 || true`);
+      ipsetCmds.push(`firewall-cmd --permanent --new-ipset=${set} --type=hash:net${fam === 'ipv6' ? ' --option=family=inet6' : ''}`);
+      members.forEach((e) => ipsetCmds.push(`firewall-cmd --permanent --ipset=${set} --add-entry=${e}`));
+      zonePre.unshift({ family: fam, srcIpset: set, action: 'drop', priority: caps.richPriority ? -32500 : undefined });
+    }
+    if (l.outbound) d.unsupported(`Blocklist "${l.name}": firewalld output only blocks traffic coming from the list, not going to it.`);
+  }
   zone.rich.unshift(...zonePre);
 
   // NAT
@@ -234,6 +251,7 @@ export function compileFirewalld(p: Project, target: Target): CompileResult {
   o.push('set -eu');
   o.blank();
   o.push(`${cmd} --delete-zone=${ZONE} >/dev/null 2>&1 || true`);
+  ipsetCmds.forEach((c) => o.push(c));
   o.push(`${cmd} --new-zone=${ZONE}`);
   o.push(`${cmd} --zone=${ZONE} --set-target=${p.policies.in === 'drop' ? 'DROP' : 'ACCEPT'}`);
   for (const pt of zone.ports) o.push(`${cmd} --zone=${ZONE} --add-port=${pt.port}/${pt.proto}`, pt.ruleId);
@@ -335,5 +353,8 @@ export function compileFirewalld(p: Project, target: Target): CompileResult {
     }),
   ];
   void direct;
+  files.push(...blocklistUpdater(lists, 'firewalld', opt.ipv6));
+  const sys = sysctlFile(p);
+  if (sys) files.push(sys);
   return { target, files, diagnostics: d.list };
 }

@@ -111,6 +111,11 @@ export function simulate(p: Project, input: Packet): SimResult {
     step('IPv6 switched off', true, 'all IPv6 traffic is dropped', 'drop');
     return done('drop', 'IPv6 is switched off');
   }
+  for (const b of (p.blocklists ?? []).filter((x) => x.enabled)) {
+    const hit = (dir !== 'out' && addrInList(pkt.src, b.entries)) || (dir !== 'in' && !!b.outbound && addrInList(pkt.dst, b.entries));
+    step(`Blocklist: ${b.name}`, hit, hit ? 'address is on the list' : `not among the ${b.entries.length} stored entries${b.url ? ' (downloaded entries are not simulated)' : ''}`, 'drop');
+    if (hit) return done('drop', `blocklist "${b.name}"`);
+  }
   if (opt.allowEstablished) {
     const est = pkt.state === 'established' || pkt.state === 'related';
     step('Established / related', est, est ? 'part of a connection that was already allowed' : `state is ${pkt.state}`, 'accept');

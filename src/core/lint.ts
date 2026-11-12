@@ -2,6 +2,7 @@
 import { newRule, type Project, type Rule } from './model';
 import { addrsCover, parsePort, portInList, portsCover, WELL_KNOWN_PORTS } from './net';
 import { runTests } from './reach';
+import { RECOMMENDED_HARDENING } from './sysctl';
 import { resolveAll, type ResolvedRule } from './resolve';
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
@@ -276,6 +277,17 @@ export function lint(p: Project): Finding[] {
     });
   }
 
+  const missingHardening = RECOMMENDED_HARDENING.filter((id) => !(p.hardening ?? []).includes(id));
+  if (missingHardening.length > 0) {
+    f.push({
+      id: 'hardening',
+      severity: 'low',
+      title: 'Recommended kernel hardening is not enabled',
+      detail: `Missing: ${missingHardening.join(', ')}. These sysctl settings refuse spoofed, redirected and source-routed packets.`,
+      fixLabel: 'Enable recommended',
+      fix: (x) => ({ ...x, hardening: [...new Set([...(x.hardening ?? []), ...RECOMMENDED_HARDENING])] }),
+    });
+  }
   const ban = p.protections?.autoBan;
   if (ban && ban.ports.length > 0) {
     for (const rr of inbound) {

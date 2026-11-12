@@ -2,6 +2,8 @@ import type { Project } from '../model';
 import { cartesian, orAny, resolveAll, type ResolvedRule } from '../resolve';
 import type { Target } from '../targets';
 import { safeApplyScript } from './apply';
+import { activeLists, blocklistUpdater, ipsetCreate, ipsetSpecs } from './blocklists';
+import { sysctlFile } from '../sysctl';
 import { natLines, protectionSpecs, ruleSpecs } from './iptables';
 import { BANNER, Diags, Out, shQuote, type CompileResult, type OutFile } from './types';
 
@@ -156,6 +158,17 @@ export function compileUfw(p: Project, target: Target): CompileResult {
     for (const c of commands(rr, target, d)) o.push(c, r.id);
   }
 
+  const lists = activeLists(p, d);
+  if (lists.length > 0) {
+    d.fallback('ufw has no blocklist command; blocklists are written to the before.rules fragment and use ipset. Create the sets before ufw starts (for example from /etc/ufw/before.init) with the commands at the top of the fragment.');
+    for (const [fam, frag, pre] of [['ipv4', frag4, 'ufw'], ['ipv6', frag6, 'ufw6']] as const) {
+      if (fam === 'ipv6' && !opt.ipv6) continue;
+      const sp = ipsetSpecs(lists, fam);
+      sp.input.forEach((x) => frag.push(`-A ${pre}-before-input ${x}`));
+      sp.forward.forEach((x) => frag.push(`-A ${pre}-before-forward ${x}`));
+      sp.output.forEach((x) => frag.push(`-A ${pre}-before-output ${x}`));
+    }
+  }
   const prot = protectionSpecs(p);
   const protLines = [...prot.early, ...prot.forwardToo, ...prot.late];
   if (protLines.length > 0) {
@@ -190,6 +203,11 @@ export function compileUfw(p: Project, target: Target): CompileResult {
     const file = v6 ? '/etc/ufw/before6.rules' : '/etc/ufw/before.rules';
     f.push(`# ${BANNER} - additions for ${file}`);
     f.push('# ufw has no command for these, so they are added to its rules file by hand.');
+    if (lists.length > 0 && !v6) {
+      f.blank();
+      f.push('# 0) Create the address sets first (shell commands, not part of the rules file):');
+      ipsetCreate(lists, opt.ipv6).forEach((c) => f.push(`#    ${c}`));
+    }
     if (nat.length > 0) {
       f.blank();
       f.push(`# 1) Paste this block at the very top of ${file} (before *filter):`);
@@ -229,5 +247,8 @@ export function compileUfw(p: Project, target: Target): CompileResult {
       persist: ['ufw stores its rules itself; "ufw enable" already makes them start at boot.'],
     }),
   );
+  files.push(...blocklistUpdater(lists, 'ufw', opt.ipv6));
+  const sys = sysctlFile(p);
+  if (sys) files.push(sys);
   return { target, files, diagnostics: d.list };
 }

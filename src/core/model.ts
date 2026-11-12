@@ -45,6 +45,18 @@ export interface Protections {
   autoBan?: { ports: string[]; seconds: number };
 }
 
+export interface Blocklist {
+  id: string;
+  name: string;
+  enabled: boolean;
+  /** Addresses and CIDRs kept in the project. */
+  entries: string[];
+  /** Optional list to download on the firewall host (one address or CIDR per line). */
+  url?: string;
+  /** Also block traffic going to these addresses. */
+  outbound?: boolean;
+}
+
 export interface PolicyTest {
   id: string;
   name: string;
@@ -146,6 +158,9 @@ export interface Project {
   zones: Zone[];
   protections: Protections;
   tests: PolicyTest[];
+  blocklists: Blocklist[];
+  /** Ids of enabled kernel hardening settings (see sysctl.ts). */
+  hardening: string[];
 }
 
 let counter = 0;
@@ -196,6 +211,8 @@ export function emptyProject(name = 'Untitled firewall'): Project {
     zones: [],
     protections: {},
     tests: [],
+    blocklists: [],
+    hardening: [],
   };
 }
 
@@ -233,6 +250,15 @@ export function coerceProject(raw: unknown): Project {
       trust: z.trust === 'trusted' || z.trust === 'dmz' ? z.trust : 'untrusted',
     })),
     protections: r.protections && typeof r.protections === 'object' ? r.protections : {},
+    blocklists: (r.blocklists ?? []).map((b: any) => ({
+      id: String(b.id ?? uid('bl')),
+      name: String(b.name ?? 'blocklist'),
+      enabled: b.enabled !== false,
+      entries: arr(b.entries),
+      url: typeof b.url === 'string' && b.url ? b.url : undefined,
+      outbound: !!b.outbound || undefined,
+    })),
+    hardening: arr(r.hardening),
     tests: Array.isArray(r.tests) ? r.tests.filter((t: any) => t && t.packet).map((t: any) => ({ ...t, id: String(t.id ?? uid('t')) })) : [],
   };
 }

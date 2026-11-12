@@ -3,6 +3,8 @@ import { familyOf } from '../net';
 import { expandAddrs, resolveAll, shortId, slug, type ResolvedRule } from '../resolve';
 import type { Target } from '../targets';
 import { safeApplyScript } from './apply';
+import { activeLists, blocklistUpdater } from './blocklists';
+import { sysctlFile } from '../sysctl';
 import { logPrefix, natFamily } from './iptables';
 import { BANNER, Diags, Out, type CompileResult, type OutFile } from './types';
 
@@ -294,12 +296,20 @@ export function compileNftables(p: Project, target: Target): CompileResult {
   const body: Record<'in' | 'forward' | 'out', Out> = { in: new Out(), forward: new Out(), out: new Out() };
   const opt = p.options;
   const hookName = { in: 'input', forward: 'forward', out: 'output' } as const;
+  const lists = activeLists(p, d);
   for (const dir of ['in', 'forward', 'out'] as const) {
     const o = body[dir];
     o.push(`${IND}${IND}type filter hook ${hookName[dir]} priority ${prio('filter')}; policy ${p.policies[dir]};`);
     if (opt.allowLoopback && dir === 'in') o.push(`${IND}${IND}iifname "lo" accept`);
     if (opt.allowLoopback && dir === 'out') o.push(`${IND}${IND}oifname "lo" accept`);
     if (!opt.ipv6) o.push(`${IND}${IND}meta nfproto ipv6 drop comment "IPv6 is switched off in this project"`);
+    for (const l of lists) {
+      const c = `comment ${q(`blocklist: ${l.name}`)}`;
+      for (const [ipk, sfx] of (opt.ipv6 ? [['ip', 'v4'], ['ip6', 'v6']] : [['ip', 'v4']]) as [string, string][]) {
+        if (dir !== 'out') o.push(`${IND}${IND}${ipk} saddr @${l.set}_${sfx} counter drop ${c}`);
+        if (dir !== 'in' && l.outbound) o.push(`${IND}${IND}${ipk} daddr @${l.set}_${sfx} counter drop ${c}`);
+      }
+    }
     const prot = dir === 'out' ? { early: [], late: [] } : protectionLines(p, sets, target, d, dir);
     for (const l of prot.early) o.push(`${IND}${IND}${l}`);
     if (opt.allowEstablished) o.push(`${IND}${IND}ct state established,related accept`);
@@ -341,6 +351,15 @@ export function compileNftables(p: Project, target: Target): CompileResult {
     o.push(`${IND}${IND}type ${s.fam === 'ipv4' ? 'ipv4_addr' : 'ipv6_addr'}; flags interval;`);
     o.push(`${IND}${IND}elements = { ${s.members.join(', ')} }`);
     o.push(`${IND}}`);
+  }
+  for (const l of lists) {
+    for (const [type, sfx, members] of (opt.ipv6 ? [['ipv4_addr', 'v4', l.v4], ['ipv6_addr', 'v6', l.v6]] : [['ipv4_addr', 'v4', l.v4]]) as [string, string, string[]][]) {
+      o.blank();
+      o.push(`${IND}set ${l.set}_${sfx} {`);
+      o.push(`${IND}${IND}type ${type}; flags interval; auto-merge;`);
+      if (members.length > 0) o.push(`${IND}${IND}elements = { ${members.join(', ')} }`);
+      o.push(`${IND}}`);
+    }
   }
   for (const s of sets.dynamic.values()) {
     o.blank();
@@ -412,5 +431,9 @@ export function compileNftables(p: Project, target: Target): CompileResult {
       persist: nftPersistHints(target),
     }),
   ];
+  files.push(...blocklistUpdater(lists, 'nftables', opt.ipv6));
+  if (lists.some((l) => l.url)) d.note('Downloaded blocklists start empty: run emberwall-blocklists.sh after loading the ruleset, and enable the timer to keep them fresh. Reloading the ruleset empties them again until the next refresh.');
+  const sys = sysctlFile(p);
+  if (sys) files.push(sys);
   return { target, files, diagnostics: d.list };
 }

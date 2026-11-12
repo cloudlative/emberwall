@@ -255,7 +255,7 @@ body {
     border-color: var(--line);
   }
   .nav-item {
-    @apply flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium text-mute transition;
+    @apply flex w-full items-center gap-2.5 rounded-xl px-3 py-1.5 text-[13px] font-medium text-mute transition;
     border: 1px solid transparent;
   }
   .nav-item:hover {
@@ -314,3 +314,16 @@ body {
 .switch[aria-checked='true']::after { left: 16px; background: #fff; }
 
 button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid #ff8f5c; outline-offset: 2px; }
+
+/* Printing (compliance report): drop the chrome, let the page flow, use ink on white. */
+@media print {
+  :root, :root[data-theme='light'] {
+    --ink: 20 24 36; --mute: 80 88 110; --bg: #fff; --glass: #fff; --glass-hover: #f3f4f8; --line: #d5d9e3; --line-strong: #b9bfcd;
+    --shine: transparent; --shadow: none; --ok: #047857; --bad: #be123c; --warn: #b45309; --info: #1d4ed8;
+  }
+  html, body, #root { height: auto !important; overflow: visible !important; background: #fff !important; }
+  .backdrop, aside, header.glass, .no-print { display: none !important; }
+  #root > div { display: block !important; height: auto !important; padding: 0 !important; }
+  main, main > div, .print-page { height: auto !important; overflow: visible !important; }
+  .glass, .tile { box-shadow: none !important; backdrop-filter: none !important; break-inside: avoid; }
+}
