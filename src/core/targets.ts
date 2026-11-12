@@ -38,6 +38,9 @@ export const CAPABILITIES: Capability[] = [
   { key: 'thExpr', tool: 'nftables', since: '0.9.2', label: 'th dport (one rule for TCP and UDP)', fallback: 'one rule per protocol', source: 'nftables a43a6964' },
   { key: 'objectComments', tool: 'nftables', since: '0.9.7', label: 'comments on tables and chains', fallback: 'left out', source: 'nftables c156232a, 702ac2b7' },
   { key: 'destroy', tool: 'nftables', since: '1.0.7', kernel: '6.3', label: 'destroy table (idempotent reload)', fallback: 'add table + delete table idiom', source: 'nftables e1dfd5cc' },
+  { key: 'ctCount', tool: 'nftables', since: '0.9.1', label: 'ct count (connection limits per client)', fallback: 'connection limit left out', source: 'nftables tests, first in v0.9.1' },
+  { key: 'timeMatch', tool: 'nftables', since: '0.9.3', label: 'meta hour / meta day (schedules)', fallback: 'schedule left out', source: 'nftables tests, first in v0.9.3' },
+  { key: 'dynSets', tool: 'nftables', since: '0.9.7', label: 'dynamic sets updated from rules (add @set { … })', fallback: 'meter syntax for per-client limits; no auto-ban', source: 'nftables tests, first in v0.9.7' },
   // ufw
   { key: 'route', tool: 'ufw', since: '0.34', label: 'ufw route (forwarding rules)', fallback: 'forward rules written as before.rules fragment', source: 'ufw ChangeLog 0.34' },
   { key: 'comment', tool: 'ufw', since: '0.35', label: 'rule comments', fallback: 'comments kept as shell comments', source: 'ufw ChangeLog 0.35' },

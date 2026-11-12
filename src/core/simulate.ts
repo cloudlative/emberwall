@@ -9,6 +9,8 @@ export interface Packet {
   dst: string;
   proto: 'tcp' | 'udp' | 'icmp';
   port?: number;
+  /** Source port; when omitted, source-port matches are assumed to hold. */
+  sport?: number;
   icmpType?: string;
   inIface?: string;
   outIface?: string;
@@ -58,6 +60,8 @@ export function mismatch(rr: ResolvedRule, pkt: Packet): string | null {
   if (rr.ports.length > 0 && pkt.proto !== 'icmp') {
     if (pkt.port === undefined || !portInList(pkt.port, rr.ports)) return `port ${pkt.port ?? '-'} not in ${rr.ports.join(', ')}`;
   }
+  if (rr.srcPorts.length > 0 && pkt.sport !== undefined && !portInList(pkt.sport, rr.srcPorts)) return `source port ${pkt.sport} not in ${rr.srcPorts.join(', ')}`;
+  if (r.mark) return `packet carries no mark ${r.mark}`;
   if (r.proto === 'icmp' && r.icmpType && r.icmpType !== (pkt.icmpType ?? 'echo-request')) return `ICMP type is not ${r.icmpType}`;
   if (r.states && r.states.length > 0 && !r.states.includes(pkt.state)) return `connection state is ${pkt.state}`;
   return null;
@@ -124,6 +128,13 @@ export function simulate(p: Project, input: Packet): SimResult {
     if (ok) return done('accept', 'essential-ICMP rule');
   }
 
+  const ban = p.protections?.autoBan;
+  if (ban && ban.ports.length > 0 && dir === 'in' && pkt.proto === 'tcp') {
+    const hit = pkt.port !== undefined && portInList(pkt.port, ban.ports);
+    step('Auto-ban trap', hit, hit ? `port ${pkt.port} is a trap: the packet is dropped and the client is banned for ${ban.seconds}s` : 'not a trap port', 'drop');
+    if (hit) return done('drop', 'auto-ban trap');
+  }
+
   for (const rr of resolveAll(p).filter((x) => x.rule.direction === dir)) {
     const why = mismatch(rr, pkt);
     const r = rr.rule;
@@ -132,10 +143,19 @@ export function simulate(p: Project, input: Packet): SimResult {
       continue;
     }
     const limited = !!r.rateLimit && r.action === 'accept';
+    const caveats = [
+      r.schedule ? `only ${r.schedule.days.length ? r.schedule.days.join('/') + ' ' : ''}${r.schedule.from}-${r.schedule.to}` : '',
+      r.connLimit && r.action === 'accept' ? `at most ${r.connLimit} connections per client` : '',
+      r.srcMac ? `only from MAC ${r.srcMac}` : '',
+    ].filter(Boolean);
     step(
       r.name,
       true,
-      limited ? `matches; accepted up to ${r.rateLimit!.rate}/${r.rateLimit!.per}, excess falls through to the next rule` : `matches${r.log ? ' (logged)' : ''}`,
+      (limited
+        ? r.rateLimit!.perSource
+          ? `matches; each client may send ${r.rateLimit!.rate}/${r.rateLimit!.per}, faster clients are dropped`
+          : `matches; accepted up to ${r.rateLimit!.rate}/${r.rateLimit!.per}, excess falls through to the next rule`
+        : `matches${r.log ? ' (logged)' : ''}`) + (caveats.length ? ` — ${caveats.join(', ')}` : ''),
       r.action,
       r.id,
     );

@@ -24,6 +24,20 @@ edge.rules = [
   newRule({ name: 'many ports', proto: 'tcp', ports: Array.from({ length: 20 }, (_, i) => String(1000 + i * 3)) }),
   newRule({ name: 'fwd', direction: 'forward', proto: 'tcp', ports: ['443'], inIface: 'eth1', outIface: 'eth0', dst: ['10.1.0.0/16'] }),
 ];
+edge.zones = [
+  { id: 'lan', name: 'LAN', interfaces: ['eth1', 'eth2'], networks: ['192.168.0.0/16'], trust: 'trusted' },
+  { id: 'wan', name: 'WAN', interfaces: ['eth0'], networks: [], trust: 'untrusted' },
+];
+edge.protections = { synFlood: { rate: 25, burst: 50 }, portScan: true, autoBan: { ports: ['23', '3389', '5900:5910'], seconds: 3600 } };
+edge.rules.push(
+  newRule({ name: 'per client ssh', proto: 'tcp', ports: ['2222'], rateLimit: { rate: 6, per: 'minute', burst: 10, perSource: true }, connLimit: 4, log: true }),
+  newRule({ name: 'per client v4 dns', proto: 'tcpudp', ports: ['5353'], src: ['10.0.0.0/8'], rateLimit: { rate: 50, per: 'second', burst: 100, perSource: true } }),
+  newRule({ name: 'office hours', proto: 'tcp', ports: ['8443'], schedule: { days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], from: '08:00', to: '18:00' } }),
+  newRule({ name: 'mac and mark', proto: 'udp', ports: ['69'], srcPorts: ['1024:65535'], srcMac: 'AA:bb:cc:00:11:22', mark: '0x10' }),
+  newRule({ name: 'sports', proto: 'tcpudp', srcPorts: ['53', '123'], ports: ['1024:65535'], connLimit: 10 }),
+  newRule({ name: 'zone fwd', direction: 'forward', proto: 'tcp', ports: ['443'], srcZone: 'lan', dstZone: 'wan' }),
+  newRule({ name: 'zone in', proto: 'any', srcZone: 'lan' }),
+);
 edge.nat = [
   newNat({ name: 'snat', kind: 'snat', iface: 'eth0', src: '10.0.0.0/24', toAddr: '203.0.113.5', randomFully: true }),
   newNat({ name: 'masq', kind: 'masquerade', iface: 'eth0', randomFully: true }),

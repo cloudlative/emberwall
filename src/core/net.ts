@@ -160,3 +160,31 @@ export function portLabel(p: string): string {
   if (r && r.from === r.to && WELL_KNOWN_PORTS[r.from]) return WELL_KNOWN_PORTS[r.from];
   return '';
 }
+
+function formatAddr(family: 'ipv4' | 'ipv6', n: bigint): string {
+  if (family === 'ipv4') return [24n, 16n, 8n, 0n].map((sh) => String((n >> sh) & 255n)).join('.');
+  const groups: string[] = [];
+  for (let i = 7; i >= 0; i -= 1) groups.push(((n >> BigInt(i * 16)) & 0xffffn).toString(16));
+  // Collapse the longest run of zero groups.
+  let best = -1;
+  let bestLen = 0;
+  for (let i = 0; i < 8; i += 1) {
+    let j = i;
+    while (j < 8 && groups[j] === '0') j += 1;
+    if (j - i > bestLen && j - i > 1) {
+      best = i;
+      bestLen = j - i;
+    }
+  }
+  if (best < 0) return groups.join(':');
+  return `${groups.slice(0, best).join(':')}::${groups.slice(best + bestLen).join(':')}`;
+}
+
+/** A concrete host address inside a network (the first usable one), for simulation. */
+export function representative(cidr: string): string | null {
+  const c = parseCidr(cidr);
+  if (!c) return null;
+  if (c.prefix === c.bits) return formatAddr(c.family, c.addr);
+  const host = BigInt(c.bits - c.prefix);
+  return formatAddr(c.family, ((c.addr >> host) << host) + 1n);
+}

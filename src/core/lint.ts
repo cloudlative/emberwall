@@ -1,6 +1,7 @@
 // Audit engine: finds risky, broken or redundant configuration and offers fixes.
 import { newRule, type Project, type Rule } from './model';
-import { addrsCover, parsePort, portInList, WELL_KNOWN_PORTS } from './net';
+import { addrsCover, parsePort, portInList, portsCover, WELL_KNOWN_PORTS } from './net';
+import { runTests } from './reach';
 import { resolveAll, type ResolvedRule } from './resolve';
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
@@ -49,6 +50,7 @@ export function covers(a: ResolvedRule, b: ResolvedRule): boolean {
   if (ra.states && ra.states.length > 0 && !(rb.states && rb.states.every((s) => ra.states!.includes(s)) && rb.states.length > 0)) return false;
   if (ra.proto === 'icmp' && ra.icmpType && ra.icmpType !== rb.icmpType) return false;
   if (ra.rateLimit && ra.action === 'accept') return false; // a limited rule lets excess traffic through
+  if (ra.schedule || ra.srcMac || ra.mark || (ra.srcPorts && ra.srcPorts.length > 0)) return false; // narrower than the fields compared here
   for (const fam of ['v4', 'v6'] as const) {
     const vb = b[fam];
     if (!vb) continue;
@@ -177,8 +179,8 @@ export function lint(p: Project): Finding[] {
         title: 'SSH is open to any source without a rate limit',
         detail: 'A rate limit slows brute-force attempts. Restricting the source addresses is better still.',
         ruleId: r.id,
-        fixLabel: 'Add rate limit (10/min)',
-        fix: patchRule(r.id, { rateLimit: { rate: 10, per: 'minute', burst: 20 } }),
+        fixLabel: 'Limit to 10/min per client',
+        fix: patchRule(r.id, { rateLimit: { rate: 10, per: 'minute', burst: 20, perSource: true } }),
       });
     }
   }
@@ -186,7 +188,7 @@ export function lint(p: Project): Finding[] {
   // Shadowed and redundant rules
   for (let j = 0; j < rules.length; j += 1) {
     for (let i = 0; i < j; i += 1) {
-      if (!covers(rules[i], rules[j])) continue;
+      if (rules[i].rule.id === rules[j].rule.id || !covers(rules[i], rules[j])) continue;
       const a = rules[i].rule;
       const b = rules[j].rule;
       const same = a.action === b.action;
@@ -271,6 +273,31 @@ export function lint(p: Project): Finding[] {
       detail: 'NAT needs the kernel to route packets. The apply scripts switch ip_forward on anyway; turn the option on to make that explicit.',
       fixLabel: 'Turn forwarding on',
       fix: (x) => ({ ...x, options: { ...x.options, forwarding: true } }),
+    });
+  }
+
+  const ban = p.protections?.autoBan;
+  if (ban && ban.ports.length > 0) {
+    for (const rr of inbound) {
+      if (rr.rule.action !== 'accept' || (rr.rule.proto !== 'tcp' && rr.rule.proto !== 'tcpudp')) continue;
+      const clash = ban.ports.filter((bp) => portsCover(rr.ports.length ? rr.ports : ['1:65535'], [bp]));
+      if (clash.length === 0) continue;
+      f.push({
+        id: `ban-clash:${rr.rule.id}`,
+        severity: 'high',
+        title: `"${rr.rule.name}" opens an auto-ban trap port`,
+        detail: `Port ${clash.join(', ')} is a trap: clients touching it are banned before this rule is reached, so the service is unreachable.`,
+        ruleId: rr.rule.id,
+      });
+    }
+  }
+  const failing = runTests(p).filter((t) => !t.pass);
+  if (failing.length > 0) {
+    f.push({
+      id: 'tests-failing',
+      severity: 'high',
+      title: `${failing.length} policy test${failing.length > 1 ? 's fail' : ' fails'}`,
+      detail: failing.slice(0, 3).map((t) => `"${t.test.name}" expected ${t.test.expect}, got ${t.verdict}`).join('; '),
     });
   }
 

@@ -2,7 +2,7 @@ import type { Project } from '../model';
 import { cartesian, orAny, resolveAll, type ResolvedRule } from '../resolve';
 import type { Target } from '../targets';
 import { safeApplyScript } from './apply';
-import { natLines, ruleSpecs } from './iptables';
+import { natLines, protectionSpecs, ruleSpecs } from './iptables';
 import { BANNER, Diags, Out, shQuote, type CompileResult, type OutFile } from './types';
 
 type Fam = 'ipv4' | 'ipv6';
@@ -35,7 +35,8 @@ function commands(rr: ResolvedRule, target: Target, d: Diags): string[] {
   if (r.rateLimit && r.action === 'accept') {
     if (r.direction === 'in' && r.proto !== 'any') {
       action = 'limit';
-      d.fallback(`"${r.name}": ufw's limit is fixed at 6 connections per 30 seconds per source; the configured ${r.rateLimit.rate}/${r.rateLimit.per} is not used.`, r.id);
+      if (r.rateLimit.perSource && r.rateLimit.rate === 6 && r.rateLimit.per === 'minute') { /* close enough to ufw's built-in limit */ }
+      else d.fallback(`"${r.name}": ufw's limit is fixed at 6 connections per 30 seconds per source; the configured ${r.rateLimit.rate}/${r.rateLimit.per} is not used.`, r.id);
     } else {
       d.unsupported(`"${r.name}": ufw can only rate-limit inbound TCP/UDP rules; the limit is left out.`, r.id);
     }
@@ -63,10 +64,10 @@ function commands(rr: ResolvedRule, target: Target, d: Diags): string[] {
       : ([['ipv4', rr.v4], ['ipv6', rr.v6]].filter((x) => x[1]) as [Fam, { src: string[]; dst: string[] }][]);
 
   // TCP+UDP on a single plain port needs no proto keyword in ufw.
-  const single = rr.ports.length === 1 && !rr.ports[0].includes(':');
+  const single = rr.ports.length === 1 && !rr.ports[0].includes(':') && rr.srcPorts.length === 0;
   const protoSets: (string | null)[] =
-    r.proto === 'any' ? [null] : r.proto === 'tcpudp' ? (single || rr.ports.length === 0 ? [null] : ['tcp', 'udp']) : [r.proto];
-  if (r.proto === 'tcpudp' && rr.ports.length === 0) {
+    r.proto === 'any' ? [null] : r.proto === 'tcpudp' ? (single || rr.ports.length + rr.srcPorts.length === 0 ? [null] : ['tcp', 'udp']) : [r.proto];
+  if (r.proto === 'tcpudp' && rr.ports.length + rr.srcPorts.length === 0) {
     d.fallback(`"${r.name}": ufw cannot match "TCP or UDP" without a port; the rule covers every protocol.`, r.id);
   }
 
@@ -80,6 +81,7 @@ function commands(rr: ResolvedRule, target: Target, d: Diags): string[] {
           const c = [...head];
           if (proto) c.push(`proto ${proto}`);
           c.push(`from ${src ?? (pin ? anyAddr : 'any')}`);
+          if (rr.srcPorts.length > 0) c.push(`port ${rr.srcPorts.slice(0, 15).join(',')}`);
           c.push(`to ${dst ?? 'any'}`);
           if (ports.length > 0) c.push(`port ${ports.join(',')}`);
           if (target.caps.comment && r.name) c.push(`comment ${shQuote(r.name.replace(/'/g, ''))}`);
@@ -127,11 +129,14 @@ export function compileUfw(p: Project, target: Target): CompileResult {
   let commentWarned = false;
   for (const rr of rules) {
     const r = rr.rule;
+    const advanced = !!(r.connLimit || r.schedule || r.srcMac || r.mark);
     const toFragment =
-      r.proto === 'icmp' || (r.states && r.states.length > 0) || (r.direction === 'forward' && !target.caps.route);
+      advanced || r.proto === 'icmp' || (r.states && r.states.length > 0) || (r.direction === 'forward' && !target.caps.route);
     if (toFragment) {
       const why =
-        r.proto === 'icmp'
+        advanced
+          ? 'the ufw command line has no connection limits, schedules, MAC or mark matches'
+          : r.proto === 'icmp'
           ? 'the ufw command line has no ICMP rules'
           : r.direction === 'forward' && !target.caps.route
             ? `"ufw route" needs ufw 0.34+ (target is ${target.version})`
@@ -149,6 +154,16 @@ export function compileUfw(p: Project, target: Target): CompileResult {
       }
     }
     for (const c of commands(rr, target, d)) o.push(c, r.id);
+  }
+
+  const prot = protectionSpecs(p);
+  const protLines = [...prot.early, ...prot.forwardToo, ...prot.late];
+  if (protLines.length > 0) {
+    d.fallback('ufw has no commands for scan, flood or auto-ban protection; those rules are written to the before.rules fragment.');
+    for (const sp of protLines) {
+      frag4.push(`-A ufw-before-input ${sp}`);
+      if (opt.ipv6) frag6.push(`-A ufw6-before-input ${sp}`);
+    }
   }
 
   o.blank();

@@ -6,7 +6,7 @@ export interface OutLine {
   ruleId?: string;
 }
 
-export type OutLang = 'iptables' | 'nft' | 'shell' | 'xml';
+export type OutLang = 'iptables' | 'nft' | 'shell' | 'xml' | 'yaml' | 'hcl' | 'conf' | 'powershell';
 
 export interface OutFile {
   name: string;

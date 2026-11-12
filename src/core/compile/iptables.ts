@@ -1,6 +1,6 @@
 import type { NatRule, Project } from '../model';
 import { familyOf } from '../net';
-import { cartesian, orAny, resolveAll, slug, type ResolvedRule } from '../resolve';
+import { cartesian, orAny, resolveAll, shortId, slug, type ResolvedRule } from '../resolve';
 import type { Target } from '../targets';
 import { safeApplyScript } from './apply';
 import { BANNER, Diags, Out, type CompileResult, type OutFile, type OutLine } from './types';
@@ -81,13 +81,33 @@ export function ruleSpecs(rr: ResolvedRule, fam: Fam): string[] {
           if (ports.length === 1) m.push(`--dport ${ports[0]}`);
           else if (ports.length > 1) m.push(`-m multiport --dports ${ports.join(',')}`);
         }
+        if ((proto === 'tcp' || proto === 'udp') && rr.srcPorts.length > 0) {
+          m.push(rr.srcPorts.length === 1 ? `--sport ${rr.srcPorts[0]}` : `-m multiport --sports ${rr.srcPorts.slice(0, 15).join(',')}`);
+        }
+        if (r.srcMac && r.direction !== 'out') m.push(`-m mac --mac-source ${r.srcMac}`);
+        if (r.mark) m.push(`-m mark --mark ${r.mark}`);
+        if (r.schedule) {
+          m.push(`-m time --timestart ${r.schedule.from} --timestop ${r.schedule.to}${r.schedule.days.length > 0 ? ` --weekdays ${r.schedule.days.join(',')}` : ''}`);
+        }
         if (r.states && r.states.length > 0) {
           m.push(`-m conntrack --ctstate ${r.states.map((s) => s.toUpperCase()).join(',')}`);
         }
-        if (r.rateLimit && r.action === 'accept') {
+        const c = `-m comment --comment ${quote(r.name || r.id)}`;
+        const guards: string[] = [];
+        const perSource = !!r.rateLimit?.perSource && r.action === 'accept';
+        if (perSource) {
+          const rl = r.rateLimit!;
+          guards.push(`-m hashlimit --hashlimit-above ${rl.rate}/${rl.per} --hashlimit-burst ${rl.burst} --hashlimit-mode srcip --hashlimit-name ew_${shortId(r.id)} ${c} -j DROP`);
+        }
+        if (r.connLimit && r.action === 'accept') {
+          guards.push(`-m connlimit --connlimit-above ${r.connLimit} ${c} -j ${proto === 'tcp' ? 'REJECT --reject-with tcp-reset' : 'DROP'}`);
+        }
+        const pre = m.join(' ');
+        for (const g of guards) out.push(`${pre} ${g}`.trim());
+        if (r.rateLimit && r.action === 'accept' && !perSource) {
           m.push(`-m limit --limit ${r.rateLimit.rate}/${r.rateLimit.per} --limit-burst ${r.rateLimit.burst}`);
         }
-        m.push(`-m comment --comment ${quote(r.name || r.id)}`);
+        m.push(c);
         const match = m.join(' ');
         if (r.log) out.push(`${match} -j LOG --log-prefix ${quote(logPrefix(r.name || r.id))}`);
         const verdict =
@@ -97,6 +117,31 @@ export function ruleSpecs(rr: ResolvedRule, fam: Fam): string[] {
     }
   }
   return out;
+}
+
+/**
+ * Scanner / flood / auto-ban rules as iptables rule specs.
+ * `early` goes before the established-connection accept, `late` just before the user's rules.
+ */
+export function protectionSpecs(p: Project): { early: string[]; late: string[]; forwardToo: string[] } {
+  const pr = p.protections ?? {};
+  const early: string[] = [];
+  const late: string[] = [];
+  const forwardToo: string[] = [];
+  if (pr.autoBan && pr.autoBan.ports.length > 0) {
+    early.push(`-m recent --name ew_ban --rcheck --seconds ${pr.autoBan.seconds} -m comment --comment "auto-ban: banned client" -j DROP`);
+    const ports = pr.autoBan.ports.slice(0, 15).join(',');
+    late.push(`-p tcp -m multiport --dports ${ports} -m recent --name ew_ban --set -m comment --comment "auto-ban: trap port" -j DROP`);
+  }
+  if (pr.portScan) {
+    for (const flags of ['ALL NONE', 'ALL ALL', 'ALL FIN,PSH,URG', 'SYN,FIN SYN,FIN', 'SYN,RST SYN,RST']) {
+      forwardToo.push(`-p tcp --tcp-flags ${flags} -m comment --comment "scan: impossible TCP flags" -j DROP`);
+    }
+  }
+  if (pr.synFlood) {
+    late.unshift(`-p tcp --syn -m hashlimit --hashlimit-above ${pr.synFlood.rate}/second --hashlimit-burst ${pr.synFlood.burst} --hashlimit-mode srcip --hashlimit-name ew_syn -m comment --comment "SYN flood guard" -j DROP`);
+  }
+  return { early, late, forwardToo };
 }
 
 export function natFamily(n: NatRule): Fam {
@@ -179,6 +224,8 @@ function restoreFile(p: Project, rules: ResolvedRule[], fam: Fam, target: Target
   if (opt.allowLoopback) {
     o.push('-A INPUT -i lo -j ACCEPT').push('-A OUTPUT -o lo -j ACCEPT');
   }
+  const prot = protectionSpecs(p);
+  for (const sp of prot.early) o.push(`-A INPUT ${sp}`);
   if (opt.allowEstablished) {
     for (const ch of ['INPUT', 'FORWARD', 'OUTPUT']) o.push(`-A ${ch} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT`);
   }
@@ -192,6 +239,8 @@ function restoreFile(p: Project, rules: ResolvedRule[], fam: Fam, target: Target
       else for (const t of ICMP6_ESSENTIAL) o.push(`-A ${ch} -p ipv6-icmp --icmpv6-type ${t} -j ACCEPT`);
     }
   }
+  for (const sp of prot.forwardToo) o.push(`-A INPUT ${sp}`).push(`-A FORWARD ${sp}`);
+  for (const sp of prot.late) o.push(`-A INPUT ${sp}`);
   for (const rr of rules) {
     for (const spec of ruleSpecs(rr, fam)) o.push(`-A ${CHAIN[rr.rule.direction]} ${spec}`, rr.rule.id);
   }
@@ -265,9 +314,10 @@ export function compileIptables(p: Project, target: Target): CompileResult {
   if (!target.caps.restoreWait) {
     d.fallback(`iptables-restore --wait needs 1.6.2+; the apply script for ${target.version} restores without waiting for the xtables lock.`);
   }
-  if (rules.some((r) => r.rule.rateLimit && r.rule.action === 'accept')) {
-    d.note('Rate limits use "-m limit", which is shared by all clients of the rule (not per source address).');
+  if (rules.some((r) => r.rule.rateLimit && !r.rule.rateLimit.perSource && r.rule.action === 'accept')) {
+    d.note('Rate limits without "per client" use "-m limit", which is shared by all clients of the rule.');
   }
+  if (rules.some((r) => r.rule.schedule)) d.note('Schedules use "-m time", which reads the kernel clock in UTC unless the host sets a kernel timezone.');
 
   const sysctl: string[] = [];
   if (p.options.forwarding || p.nat.some((n) => n.enabled)) {

@@ -12,6 +12,47 @@ export interface RateLimit {
   rate: number;
   per: 'second' | 'minute' | 'hour';
   burst: number;
+  /** Count each client separately; clients over the rate are dropped by this rule. */
+  perSource?: boolean;
+}
+
+export interface Schedule {
+  /** Empty = every day. */
+  days: Weekday[];
+  /** "HH:MM", in the firewall host's kernel time (UTC unless configured otherwise). */
+  from: string;
+  to: string;
+}
+
+export const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
+export type Weekday = (typeof WEEKDAYS)[number];
+
+export interface Zone {
+  id: string;
+  name: string;
+  interfaces: string[];
+  /** Networks behind this zone; used when a rule names the zone as source or destination. */
+  networks: string[];
+  trust: 'untrusted' | 'dmz' | 'trusted';
+}
+
+export interface Protections {
+  /** Drop clients opening new TCP connections faster than this. */
+  synFlood?: { rate: number; burst: number };
+  /** Drop TCP packets with flag combinations only scanners send. */
+  portScan?: boolean;
+  /** Clients touching one of these ports are dropped entirely for `seconds`. */
+  autoBan?: { ports: string[]; seconds: number };
+}
+
+export interface PolicyTest {
+  id: string;
+  name: string;
+  packet: {
+    direction: Direction; src: string; dst: string; proto: 'tcp' | 'udp' | 'icmp'; port?: number;
+    inIface?: string; outIface?: string; state: ConnState; icmpType?: string;
+  };
+  expect: 'accept' | 'block';
 }
 
 export interface Rule {
@@ -35,6 +76,17 @@ export interface Rule {
   log?: boolean;
   rateLimit?: RateLimit;
   comment?: string;
+  /** Source ports (TCP/UDP). */
+  srcPorts?: string[];
+  srcMac?: string;
+  /** Reject clients holding more than this many concurrent connections. */
+  connLimit?: number;
+  schedule?: Schedule;
+  /** Packet mark to match, e.g. "0x1". */
+  mark?: string;
+  /** Zone ids; expand to the zone's interfaces and networks. */
+  srcZone?: string;
+  dstZone?: string;
 }
 
 export type NatKind = 'masquerade' | 'snat' | 'dnat';
@@ -91,6 +143,9 @@ export interface Project {
   portGroups: PortGroup[];
   rules: Rule[];
   nat: NatRule[];
+  zones: Zone[];
+  protections: Protections;
+  tests: PolicyTest[];
 }
 
 let counter = 0;
@@ -138,6 +193,9 @@ export function emptyProject(name = 'Untitled firewall'): Project {
     portGroups: [],
     rules: [],
     nat: [],
+    zones: [],
+    protections: {},
+    tests: [],
   };
 }
 
@@ -167,6 +225,15 @@ export function coerceProject(raw: unknown): Project {
       newRule({ ...x, id: String(x.id ?? uid('r')), src: arr(x.src), dst: arr(x.dst), ports: arr(x.ports) }),
     ),
     nat: (r.nat ?? []).map((x: any) => newNat({ ...x, id: String(x.id ?? uid('n')) })),
+    zones: (r.zones ?? []).map((z: any) => ({
+      id: String(z.id ?? uid('z')),
+      name: String(z.name ?? 'zone'),
+      interfaces: arr(z.interfaces),
+      networks: arr(z.networks),
+      trust: z.trust === 'trusted' || z.trust === 'dmz' ? z.trust : 'untrusted',
+    })),
+    protections: r.protections && typeof r.protections === 'object' ? r.protections : {},
+    tests: Array.isArray(r.tests) ? r.tests.filter((t: any) => t && t.packet).map((t: any) => ({ ...t, id: String(t.id ?? uid('t')) })) : [],
   };
 }
 

@@ -13,6 +13,7 @@ type Element =
   | { kind: 'protocol'; value: string }
   | { kind: 'icmp'; name: string }
   | { kind: 'masquerade' }
+  | { kind: 'source-port'; port: string; proto: string }
   | { kind: 'forward-port'; port: string; proto: string; toPort?: string; toAddr?: string };
 
 /** Structured rich rule, rendered both as firewall-cmd text and as zone XML. */
@@ -21,6 +22,7 @@ interface Rich {
   priority?: number;
   family?: Fam;
   src?: string;
+  srcMac?: string;
   dst?: string;
   element?: Element;
   log?: string;
@@ -34,10 +36,12 @@ function richText(r: Rich): string {
   const t: string[] = ['rule'];
   if (r.priority !== undefined) t.push(`priority="${r.priority}"`);
   if (r.family) t.push(`family="${r.family}"`);
-  if (r.src) t.push(`source address="${r.src}"`);
+  if (r.srcMac) t.push(`source mac="${r.srcMac}"`);
+  else if (r.src) t.push(`source address="${r.src}"`);
   if (r.dst) t.push(`destination address="${r.dst}"`);
   const e = r.element;
   if (e?.kind === 'port') t.push(`port port="${e.port}" protocol="${e.proto}"`);
+  if (e?.kind === 'source-port') t.push(`source-port port="${e.port}" protocol="${e.proto}"`);
   if (e?.kind === 'protocol') t.push(`protocol value="${e.value}"`);
   if (e?.kind === 'icmp') t.push(`icmp-type name="${e.name}"`);
   if (e?.kind === 'masquerade') t.push('masquerade');
@@ -53,10 +57,12 @@ function richText(r: Rich): string {
 function richXml(r: Rich, ind: string): string[] {
   const attrs = [r.priority !== undefined ? ` priority="${r.priority}"` : '', r.family ? ` family="${r.family}"` : ''].join('');
   const x: string[] = [`${ind}<rule${attrs}>`];
-  if (r.src) x.push(`${ind}  <source address="${r.src}"/>`);
+  if (r.srcMac) x.push(`${ind}  <source mac="${r.srcMac}"/>`);
+  else if (r.src) x.push(`${ind}  <source address="${r.src}"/>`);
   if (r.dst) x.push(`${ind}  <destination address="${r.dst}"/>`);
   const e = r.element;
   if (e?.kind === 'port') x.push(`${ind}  <port port="${e.port}" protocol="${e.proto}"/>`);
+  if (e?.kind === 'source-port') x.push(`${ind}  <source-port port="${e.port}" protocol="${e.proto}"/>`);
   if (e?.kind === 'protocol') x.push(`${ind}  <protocol value="${e.value}"/>`);
   if (e?.kind === 'icmp') x.push(`${ind}  <icmp-type name="${e.name}"/>`);
   if (e?.kind === 'masquerade') x.push(`${ind}  <masquerade/>`);
@@ -85,6 +91,11 @@ function toRich(rr: ResolvedRule, priority: number | undefined, d: Diags): Rich[
 
   if (r.states && r.states.length > 0) d.unsupported(`"${r.name}": firewalld rich rules cannot match connection state; the state match is left out.`, r.id);
   const limit = r.rateLimit && r.action === 'accept' ? `${r.rateLimit.rate}/${r.rateLimit.per[0]}` : undefined;
+  if (r.rateLimit?.perSource && r.action === 'accept') d.unsupported(`"${r.name}": firewalld limits are shared by all clients; the per-client setting is not applied.`, r.id);
+  if (r.connLimit) d.unsupported(`"${r.name}": firewalld has no per-client connection limit; left out.`, r.id);
+  if (r.schedule) d.unsupported(`"${r.name}": firewalld has no time-based rules; the rule is active at all times.`, r.id);
+  if (r.mark) d.unsupported(`"${r.name}": firewalld rich rules cannot match a packet mark; left out.`, r.id);
+  if (rr.srcPorts.length > 0 && rr.ports.length > 0) d.unsupported(`"${r.name}": a rich rule takes either a source port or a destination port; the source-port match is left out.`, r.id);
   if (limit && r.rateLimit!.burst > 0) d.note(`"${r.name}": the burst value is not passed to firewalld: no release up to 2.5.2 accepts a burst on rich-rule limits.`, r.id);
 
   for (const [family, view] of views) {
@@ -94,12 +105,13 @@ function toRich(rr: ResolvedRule, priority: number | undefined, d: Diags): Rich[
       else if (proto === 'icmp') {
         if (r.icmpType) elements.push({ kind: 'icmp', name: r.icmpType });
         else elements.push({ kind: 'protocol', value: family === 'ipv6' ? 'ipv6-icmp' : 'icmp' });
-      } else if (rr.ports.length === 0) elements.push({ kind: 'protocol', value: proto });
+      } else if (rr.ports.length === 0 && rr.srcPorts.length > 0) for (const port of rr.srcPorts) elements.push({ kind: 'source-port', port: dash(port), proto });
+      else if (rr.ports.length === 0) elements.push({ kind: 'protocol', value: proto });
       else for (const port of rr.ports) elements.push({ kind: 'port', port: dash(port), proto });
     }
     for (const element of elements) {
       for (const [src, dst] of cartesian(orAny(view.src), orAny(view.dst))) {
-        if (!element && !src && !dst) {
+        if (!element && !src && !dst && !r.srcMac) {
           // A rich rule needs an element or an address: spell "any address" out per family.
           for (const fam of (family ? [family] : (['ipv4', 'ipv6'] as Fam[]))) {
             if (fam === 'ipv4' ? !rr.v4 : !rr.v6) continue;
@@ -110,8 +122,9 @@ function toRich(rr: ResolvedRule, priority: number | undefined, d: Diags): Rich[
         out.push({
           ruleId: r.id,
           priority,
-          family,
+          family: r.srcMac && !src && !dst ? undefined : family,
           src,
+          srcMac: !src ? r.srcMac : undefined,
           dst,
           element,
           log: r.log ? logPrefix(r.name || r.id) : undefined,
@@ -128,7 +141,7 @@ function isSimplePort(rr: ResolvedRule): boolean {
   const r = rr.rule;
   return (
     r.action === 'accept' && !!rr.v4 && !!rr.v6 && rr.v4.src.length + rr.v4.dst.length + rr.v6.src.length + rr.v6.dst.length === 0 &&
-    r.proto !== 'any' && r.proto !== 'icmp' && rr.ports.length > 0 && !r.log && !r.rateLimit && !(r.states && r.states.length > 0)
+    r.proto !== 'any' && r.proto !== 'icmp' && rr.ports.length > 0 && rr.srcPorts.length === 0 && !r.srcMac && !r.schedule && !r.connLimit && !r.mark && !r.log && !r.rateLimit && !(r.states && r.states.length > 0)
   );
 }
 
@@ -288,6 +301,10 @@ export function compileFirewalld(p: Project, target: Target): CompileResult {
   for (const r of zone.rich) for (const l of richXml(r, '  ')) x.push(l, r.ruleId);
   x.push('</zone>');
 
+  const pr = p.protections ?? {};
+  if (pr.synFlood || pr.portScan || pr.autoBan) {
+    d.unsupported('firewalld has no settings for scan, flood or auto-ban protection; they are not part of this output. Use the nftables or iptables target for those.');
+  }
   if (!opt.allowLoopback || !opt.allowEstablished || !opt.dropInvalid) {
     d.note('firewalld always accepts loopback and established traffic and drops invalid packets. Those toggles have no effect on this target.');
   }
