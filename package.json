@@ -15,9 +15,12 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "cli": "vite-node cli/emberwall.ts --",
+    "build:cli": "esbuild cli/emberwall.ts --bundle --platform=node --format=esm --outfile=dist-cli/emberwall.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "lucide-react": "^1.72.0",
     "lz-string": "^1.5.0",
     "react": "^18.3.1",

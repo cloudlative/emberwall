@@ -1,0 +1,11 @@
+{
+  "name": "Emberwall",
+  "short_name": "Emberwall",
+  "description": "Visual, version-aware firewall builder for nftables, iptables, ufw and firewalld.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#080a10",
+  "theme_color": "#12141c",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

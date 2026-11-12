@@ -1,5 +1,5 @@
 import {
-  ArrowLeftRight, Ban, BadgeCheck, Camera, Check, Cpu, FileSearch, Server, Share2, ClipboardCheck, Columns2, Command, FlaskConical, FolderInput, Gauge, Grid3x3, Hammer, Info, Layers, LayoutDashboard, LayoutTemplate,
+  ArrowLeftRight, Ban, BadgeCheck, Sparkles, Wand2, Camera, Check, Cpu, FileSearch, Server, Share2, ClipboardCheck, Columns2, Command, FlaskConical, FolderInput, Gauge, Grid3x3, Hammer, Info, Layers, LayoutDashboard, LayoutTemplate,
   ListChecks, Moon, Network, Plus, Redo2, Search, ShieldAlert, Sun, Table2, Undo2, Waypoints, XCircle,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -9,7 +9,9 @@ import { DISTROS, TOOL_LABEL, type Tool } from '../core/targets';
 import { TEMPLATES } from '../core/templates';
 import { readShare, useFindings, useStore, type PageId } from '../store/useStore';
 import { RuleEditor } from './components/RuleEditor';
+import { Wizard, wizardSeen } from './components/Wizard';
 import { TargetPicker } from './components/TargetPicker';
+import { AssistantPage } from './pages/Assistant';
 import { AuditPage } from './pages/Audit';
 import { BuildPage, ComparePage } from './pages/Build';
 import { DashboardPage } from './pages/Dashboard';
@@ -50,6 +52,7 @@ const NAV: NavItem[] = [
   { id: 'topology', label: 'Topology', icon: <Share2 size={16} />, group: 'Verify' },
   { id: 'fleet', label: 'Fleet', icon: <Server size={16} />, group: 'Operate' },
   { id: 'logs', label: 'Log analyzer', icon: <FileSearch size={16} />, group: 'Operate' },
+  { id: 'assistant', label: 'Assistant', icon: <Sparkles size={16} />, group: 'Operate' },
   { id: 'templates', label: 'Templates', icon: <LayoutTemplate size={16} />, group: 'Library' },
   { id: 'snapshots', label: 'Snapshots', icon: <Camera size={16} />, group: 'Library' },
   { id: 'transfer', label: 'Import / export', icon: <FolderInput size={16} />, group: 'Library' },
@@ -60,7 +63,7 @@ const PAGES: Partial<Record<PageId, () => JSX.Element>> = {
   versions: VersionsPage, simulator: SimulatorPage, audit: AuditPage, flow: FlowPage, templates: TemplatesPage,
   snapshots: SnapshotsPage, transfer: TransferPage, zones: ZonesPage, reach: ReachabilityPage, tests: TestsPage,
   blocklists: BlocklistsPage, hardening: HardeningPage, compliance: CompliancePage,
-  fleet: FleetPage, topology: TopologyPage, logs: LogsPage,
+  fleet: FleetPage, topology: TopologyPage, logs: LogsPage, assistant: AssistantPage,
 };
 
 function Logo() {
@@ -89,7 +92,7 @@ interface Cmd {
   run: () => void;
 }
 
-function Palette({ open, onClose }: { open: boolean; onClose: () => void }) {
+function Palette({ open, onClose, onWizard }: { open: boolean; onClose: () => void; onWizard: () => void }) {
   const [q, setQ] = useState('');
   const [idx, setIdx] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -99,6 +102,7 @@ function Palette({ open, onClose }: { open: boolean; onClose: () => void }) {
     const list: Cmd[] = [
       { id: 'new', label: 'Add rule', hint: 'Action', icon: <Plus size={15} />, run: () => { st.setPage('rules'); st.editRule('new:in'); } },
       ...NAV.map((n) => ({ id: `go:${n.id}`, label: `Go to ${n.label}`, hint: 'Page', icon: n.icon, run: () => st.setPage(n.id) })),
+      { id: 'wizard', label: 'Run the setup wizard', hint: 'Action', icon: <Wand2 size={15} />, run: onWizard },
       { id: 'undo', label: 'Undo', hint: 'Ctrl+Z', icon: <Undo2 size={15} />, run: st.undo },
       { id: 'redo', label: 'Redo', hint: 'Ctrl+Shift+Z', icon: <Redo2 size={15} />, run: st.redo },
       { id: 'theme', label: 'Toggle light / dark theme', hint: 'Action', icon: <Sun size={15} />, run: () => st.setTheme(useStore.getState().theme === 'dark' ? 'light' : 'dark') },
@@ -110,7 +114,7 @@ function Palette({ open, onClose }: { open: boolean; onClose: () => void }) {
       ...project.rules.map((r) => ({ id: `r:${r.id}`, label: `Edit rule: ${r.name}`, hint: 'Rule', icon: <ListChecks size={15} />, run: () => { st.setPage('rules'); st.editRule(r.id); } })),
     ];
     return list;
-  }, [project.rules]);
+  }, [project.rules, onWizard]);
   const shown = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
     return cmds.filter((c) => words.every((w) => c.label.toLowerCase().includes(w))).slice(0, 12);
@@ -189,6 +193,8 @@ export function App() {
   const findings = useFindings();
   const { setPage, undo, redo, setTheme, update } = useStore.getState();
   const [palette, setPalette] = useState(false);
+  const [wizard, setWizard] = useState(() => !wizardSeen() && !readShare(location.hash));
+  const openWizard = useMemo(() => () => setWizard(true), []);
   const urgent = findings.filter((f) => f.severity === 'critical' || f.severity === 'high').length;
   const project = useStore((st) => st.project);
   const hosts = project.hosts;
@@ -291,7 +297,8 @@ export function App() {
         </div>
       </div>
       <RuleEditor />
-      <Palette open={palette} onClose={() => setPalette(false)} />
+      <Palette open={palette} onClose={() => setPalette(false)} onWizard={openWizard} />
+      <Wizard open={wizard} onClose={() => setWizard(false)} />
       <Toasts />
     </>
   );
