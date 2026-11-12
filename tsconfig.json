@@ -23,6 +23,7 @@
     "src",
     "tests",
     "vite.config.ts",
-    "cli"
+    "cli",
+    "server"
   ]
 }
