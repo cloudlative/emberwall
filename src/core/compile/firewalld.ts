@@ -99,6 +99,14 @@ function toRich(rr: ResolvedRule, priority: number | undefined, d: Diags): Rich[
     }
     for (const element of elements) {
       for (const [src, dst] of cartesian(orAny(view.src), orAny(view.dst))) {
+        if (!element && !src && !dst) {
+          // A rich rule needs an element or an address: spell "any address" out per family.
+          for (const fam of (family ? [family] : (['ipv4', 'ipv6'] as Fam[]))) {
+            if (fam === 'ipv4' ? !rr.v4 : !rr.v6) continue;
+            out.push({ ruleId: r.id, priority, family: fam, src: fam === 'ipv4' ? '0.0.0.0/0' : '::/0', log: r.log ? logPrefix(r.name || r.id) : undefined, action: r.action, limit });
+          }
+          continue;
+        }
         out.push({
           ruleId: r.id,
           priority,
