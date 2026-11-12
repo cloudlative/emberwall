@@ -5,7 +5,7 @@ import type { Severity } from '../../core/lint';
 
 export function Panel({ title, hint, actions, children, className = '', pad = true }: { title?: ReactNode; hint?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; pad?: boolean }) {
   return (
-    <section className={`glass flex min-h-0 flex-col ${className}`}>
+    <section className={`glass flex flex-col ${className}`}>
       {(title || actions) && (
         <header className="flex flex-none items-center justify-between gap-3 px-4 pb-2 pt-3.5">
           <div className="min-w-0">

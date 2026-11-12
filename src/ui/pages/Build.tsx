@@ -110,7 +110,7 @@ export function ComparePage() {
       </div>
       {mode === 'diff' ? (
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto xl:overflow-visible xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-          <Panel title={`${ra.files[0].name} → ${rb.files[0].name}`} hint="Red lines exist only on the left target, green only on the right" className="h-[560px] xl:h-auto xl:min-h-0">
+          <Panel title={`${ra.files[0].name} → ${rb.files[0].name}`} hint="Red lines exist only on the left target, green only on the right" className="h-[560px] min-h-0 xl:h-auto">
             <DiffView lines={diff} lang={rb.files[0].lang} className="h-full" />
           </Panel>
           <div className="flex flex-col gap-4 pr-1 xl:min-h-0 xl:overflow-y-auto">
@@ -121,7 +121,7 @@ export function ComparePage() {
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto lg:grid-cols-2 lg:overflow-visible">
           {[ra, rb].map((r, i) => (
-            <Panel key={i} title={r.target.label} hint={r.files[0].name} className="h-[560px] xl:h-auto xl:min-h-0">
+            <Panel key={i} title={r.target.label} hint={r.files[0].name} className="h-[560px] min-h-0 xl:h-auto">
               <CodeView lines={r.files[0].lines} lang={r.files[0].lang} className="h-full" />
             </Panel>
           ))}

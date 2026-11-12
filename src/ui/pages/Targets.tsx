@@ -54,8 +54,8 @@ export function TargetsPage() {
             <CodeView lines={file.lines} lang={file.lang} activeRuleId={selected} onPick={selectRule} className="h-full" />
           </div>
         </section>
-        <Panel title="What carries over" hint={unsupported === 0 ? 'Everything in this ruleset maps onto this platform' : `${unsupported} thing${unsupported === 1 ? '' : 's'} this platform cannot express`} className="xl:min-h-0">
-          <div className="max-h-full overflow-y-auto pr-1"><DiagnosticList items={result.diagnostics} onPick={selectRule} /></div>
+        <Panel title="What carries over" hint={unsupported === 0 ? 'Everything in this ruleset maps onto this platform' : `${unsupported} thing${unsupported === 1 ? '' : 's'} this platform cannot express`} className="xl:min-h-0 xl:overflow-hidden">
+          <div className="pr-1 xl:max-h-full xl:overflow-y-auto"><DiagnosticList items={result.diagnostics} onPick={selectRule} /></div>
         </Panel>
       </div>
     </div>
