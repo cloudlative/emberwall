@@ -1,0 +1,315 @@
+import type { NatRule, Project, Rule } from '../model';
+import { familyOf } from '../net';
+import { expandAddrs, resolveAll, slug, type ResolvedRule } from '../resolve';
+import type { Target } from '../targets';
+import { safeApplyScript } from './apply';
+import { logPrefix, natFamily } from './iptables';
+import { BANNER, Diags, Out, type CompileResult, type OutFile } from './types';
+
+type Fam = 'ipv4' | 'ipv6';
+const TABLE = 'emberwall';
+const IND = '    ';
+
+const ICMP6_ESSENTIAL =
+  'destination-unreachable, packet-too-big, time-exceeded, parameter-problem, echo-request, nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert';
+
+function q(s: string): string {
+  return `"${s.replace(/["\\]/g, '').slice(0, 120)}"`;
+}
+
+function setOf(items: string[]): string {
+  return items.length === 1 ? items[0] : `{ ${items.join(', ')} }`;
+}
+
+const nftPort = (p: string) => p.replace(':', '-');
+
+interface SetDef {
+  name: string;
+  fam: Fam;
+  members: string[];
+}
+
+class SetRegistry {
+  defs = new Map<string, SetDef>();
+  constructor(private p: Project) {}
+  /** Returns "@name" when the list is exactly one group reference, else an inline set. */
+  expr(raw: string[], resolved: string[], fam: Fam): string {
+    if (raw.length === 1 && raw[0].startsWith('@')) {
+      const g = this.p.addressGroups.find((x) => x.id === raw[0].slice(1));
+      if (g) {
+        const name = `${slug(g.name, 24).replace(/-/g, '_')}_${fam === 'ipv4' ? 'v4' : 'v6'}`;
+        const members = expandAddrs(g.members, this.p).filter((a) => familyOf(a) === fam);
+        if (members.length > 0) {
+          this.defs.set(name, { name, fam, members });
+          return `@${name}`;
+        }
+      }
+    }
+    return setOf(resolved);
+  }
+}
+
+function verdict(r: Rule, proto: string): string {
+  if (r.action === 'accept') return 'accept';
+  if (r.action === 'drop') return 'drop';
+  return proto === 'tcp' ? 'reject with tcp reset' : 'reject';
+}
+
+function ruleLines(rr: ResolvedRule, sets: SetRegistry, target: Target, d: Diags): string[] {
+  const r = rr.rule;
+  const lines: string[] = [];
+  const hasAddr = (v: { src: string[]; dst: string[] } | null) => !!v && (v.src.length > 0 || v.dst.length > 0);
+  const familyFree = rr.v4 && rr.v6 && !hasAddr(rr.v4) && !hasAddr(rr.v6) && r.proto !== 'icmp';
+  const fams: (Fam | null)[] = familyFree ? [null] : ([rr.v4 ? 'ipv4' : null, rr.v6 ? 'ipv6' : null].filter(Boolean) as Fam[]);
+
+  // Protocol variants: one combined TCP+UDP rule when the target can express it.
+  let variants: string[][] = [rr.protos];
+  if (r.proto === 'tcpudp' && rr.ports.length > 0 && !target.caps.thExpr) {
+    variants = [['tcp'], ['udp']];
+    d.fallback(`"${r.name}": "th dport" needs nftables 0.9.2+, emitting separate TCP and UDP rules for ${target.version}`, r.id);
+  } else if (r.proto === 'tcpudp') {
+    variants = [['tcp', 'udp']];
+  } else {
+    variants = [[r.proto]];
+  }
+
+  for (const fam of fams) {
+    const view = fam === 'ipv4' ? rr.v4 : fam === 'ipv6' ? rr.v6 : null;
+    const ipk = fam === 'ipv6' ? 'ip6' : 'ip';
+    for (const protos of variants) {
+      const m: string[] = [];
+      if (r.inIface && r.direction !== 'out') m.push(`iifname ${q(r.inIface)}`);
+      if (r.outIface && r.direction !== 'in') m.push(`oifname ${q(r.outIface)}`);
+      const proto = protos[0];
+      let familyPinned = false;
+      if (view && view.src.length > 0) {
+        m.push(`${ipk} saddr ${sets.expr(r.src, view.src, fam as Fam)}`);
+        familyPinned = true;
+      }
+      if (view && view.dst.length > 0) {
+        m.push(`${ipk} daddr ${sets.expr(r.dst, view.dst, fam as Fam)}`);
+        familyPinned = true;
+      }
+      if (proto === 'icmp') {
+        if (fam === 'ipv4') m.push(r.icmpType ? `icmp type ${r.icmpType}` : 'ip protocol icmp');
+        else m.push(r.icmpType ? `icmpv6 type ${r.icmpType}` : 'meta nfproto ipv6 meta l4proto ipv6-icmp');
+        familyPinned = true;
+      }
+      if (fam && !familyPinned) m.unshift(`meta nfproto ${fam}`);
+      if (proto === 'tcp' || proto === 'udp') {
+        const ports = rr.ports.map(nftPort);
+        if (protos.length === 2) {
+          m.push(ports.length > 0 ? `meta l4proto { tcp, udp } th dport ${setOf(ports)}` : 'meta l4proto { tcp, udp }');
+        } else {
+          m.push(ports.length > 0 ? `${proto} dport ${setOf(ports)}` : `meta l4proto ${proto}`);
+        }
+      }
+      if (r.states && r.states.length > 0) m.push(`ct state ${r.states.join(',')}`);
+      if (r.rateLimit && r.action === 'accept') {
+        m.push(`limit rate ${r.rateLimit.rate}/${r.rateLimit.per} burst ${r.rateLimit.burst} packets`);
+      }
+      m.push('counter');
+      if (r.log) m.push(`log prefix ${q(logPrefix(r.name || r.id))}`);
+      m.push(verdict(r, protos.length === 1 ? proto : 'mixed'));
+      m.push(`comment ${q(r.name || r.id)}`);
+      lines.push(m.join(' '));
+    }
+  }
+  return lines;
+}
+
+function natStatement(n: NatRule, fam: Fam, inet: boolean, d: Diags, target: Target): string | null {
+  const ipk = fam === 'ipv6' ? 'ip6' : 'ip';
+  const m: string[] = [];
+  let pinned = false;
+  if (n.iface) m.push(`${n.kind === 'dnat' ? 'iifname' : 'oifname'} ${q(n.iface)}`);
+  if (n.src) {
+    m.push(`${ipk} saddr ${n.src}`);
+    pinned = true;
+  }
+  if (n.dst) {
+    m.push(`${ipk} daddr ${n.dst}`);
+    pinned = true;
+  }
+  if (inet && !pinned) m.unshift(`meta nfproto ${fam}`);
+  const fam2 = inet ? `${ipk} ` : '';
+  if (n.kind === 'dnat') {
+    if (!n.toAddr) {
+      d.invalid(`Port forward "${n.name}" has no destination address`, n.id);
+      return null;
+    }
+    if (n.port && n.proto === 'any') {
+      d.invalid(`Port forward "${n.name}" matches a port, so it needs TCP or UDP`, n.id);
+      return null;
+    }
+    if (n.proto !== 'any') m.push(n.port ? `${n.proto} dport ${nftPort(n.port)}` : `meta l4proto ${n.proto}`);
+    const addr = fam === 'ipv6' && n.toPort ? `[${n.toAddr}]` : n.toAddr;
+    m.push(`dnat ${fam2}to ${addr}${n.toPort ? `:${nftPort(n.toPort)}` : ''}`);
+  } else {
+    if (n.proto !== 'any') m.push(`meta l4proto ${n.proto}`);
+    const rand = n.randomFully ? ' fully-random' : '';
+    if (n.kind === 'snat') {
+      if (!n.toAddr) {
+        d.invalid(`SNAT rule "${n.name}" has no source address to translate to`, n.id);
+        return null;
+      }
+      m.push(`snat ${fam2}to ${n.toAddr}${rand}`);
+    } else {
+      m.push(`masquerade${rand}`);
+    }
+  }
+  void target;
+  m.push(`comment ${q(n.name || n.id)}`);
+  return m.join(' ');
+}
+
+function reset(o: Out, family: string, table: string, target: Target) {
+  if (target.caps.destroy) o.push(`destroy table ${family} ${table}`);
+  else o.push(`add table ${family} ${table}`).push(`delete table ${family} ${table}`);
+}
+
+export function nftPersistHints(target: Target): string[] {
+  switch (target.persistence) {
+    case 'rhel':
+      return [
+        'install -m 600 emberwall.nft /etc/nftables/emberwall.nft',
+        `echo 'include "/etc/nftables/emberwall.nft"' >> /etc/sysconfig/nftables.conf`,
+        'systemctl disable --now firewalld; systemctl enable --now nftables',
+      ];
+    case 'alpine':
+      return ['install -m 600 emberwall.nft /etc/nftables.d/emberwall.nft', 'rc-update add nftables && rc-service nftables restart'];
+    case 'debian':
+    case 'arch':
+      return [
+        'install -m 600 emberwall.nft /etc/nftables.conf   # replaces the distro default file',
+        'systemctl enable --now nftables',
+      ];
+    default:
+      return ['Load emberwall.nft with "nft -f" at boot (most distros: /etc/nftables.conf + nftables.service).'];
+  }
+}
+
+export function compileNftables(p: Project, target: Target): CompileResult {
+  const d = new Diags();
+  const rules = resolveAll(p);
+  for (const rr of rules) rr.problems.forEach((m) => d.invalid(`"${rr.rule.name}": ${m}`, rr.rule.id));
+  const sets = new SetRegistry(p);
+  const caps = target.caps;
+  const prio = (name: 'filter' | 'dstnat' | 'srcnat') =>
+    caps.namedPriority ? name : { filter: '0', dstnat: '-100', srcnat: '100' }[name];
+  if (!caps.namedPriority) d.fallback(`Named chain priorities need nftables 0.9.1+; using numeric priorities for ${target.version}.`);
+
+  // Build chain bodies first so the set registry is complete before the table header is written.
+  const body: Record<'in' | 'forward' | 'out', Out> = { in: new Out(), forward: new Out(), out: new Out() };
+  const opt = p.options;
+  const hookName = { in: 'input', forward: 'forward', out: 'output' } as const;
+  for (const dir of ['in', 'forward', 'out'] as const) {
+    const o = body[dir];
+    o.push(`${IND}${IND}type filter hook ${hookName[dir]} priority ${prio('filter')}; policy ${p.policies[dir]};`);
+    if (opt.allowLoopback && dir === 'in') o.push(`${IND}${IND}iifname "lo" accept`);
+    if (opt.allowLoopback && dir === 'out') o.push(`${IND}${IND}oifname "lo" accept`);
+    if (!opt.ipv6) o.push(`${IND}${IND}meta nfproto ipv6 drop comment "IPv6 is switched off in this project"`);
+    if (opt.allowEstablished) o.push(`${IND}${IND}ct state established,related accept`);
+    if (opt.dropInvalid && dir !== 'out') o.push(`${IND}${IND}ct state invalid drop`);
+    if (opt.allowIcmp && (dir === 'in' || (dir === 'out' && p.policies.out === 'drop'))) {
+      o.push(`${IND}${IND}icmp type echo-request accept`);
+      if (opt.ipv6) o.push(`${IND}${IND}icmpv6 type { ${ICMP6_ESSENTIAL} } accept`);
+    }
+  }
+  for (const rr of rules) {
+    for (const line of ruleLines(rr, sets, target, d)) body[rr.rule.direction].push(`${IND}${IND}${line}`, rr.rule.id);
+  }
+  if (opt.logDropped) {
+    for (const dir of ['in', 'forward', 'out'] as const) {
+      if (p.policies[dir] === 'drop') {
+        body[dir].push(`${IND}${IND}limit rate 5/minute burst 10 packets log prefix "ew-drop-${dir}: "`);
+      }
+    }
+  }
+
+  const nat = p.nat.filter((n) => n.enabled);
+  const o = new Out();
+  o.push('#!/usr/sbin/nft -f');
+  o.push(`# ${BANNER} - ${p.name}`);
+  o.push(`# Target: ${target.label}`);
+  o.push('# Emberwall owns one table and leaves every other table alone.');
+  o.blank();
+  reset(o, 'inet', TABLE, target);
+  if (!caps.destroy) d.fallback(`"destroy table" needs nftables 1.0.7+ and kernel 6.3+; using the add + delete idiom for ${target.version} so reloads stay idempotent.`);
+  o.blank();
+  o.push(`table inet ${TABLE} {`);
+  if (caps.objectComments) o.push(`${IND}comment ${q(p.name)}`);
+  else d.fallback(`Table and chain comments need nftables 0.9.7+; left out for ${target.version}.`);
+
+  for (const s of sets.defs.values()) {
+    o.blank();
+    o.push(`${IND}set ${s.name} {`);
+    o.push(`${IND}${IND}type ${s.fam === 'ipv4' ? 'ipv4_addr' : 'ipv6_addr'}; flags interval;`);
+    o.push(`${IND}${IND}elements = { ${s.members.join(', ')} }`);
+    o.push(`${IND}}`);
+  }
+  for (const dir of ['in', 'forward', 'out'] as const) {
+    o.blank();
+    o.push(`${IND}chain ${hookName[dir]} {`);
+    o.add(body[dir].lines);
+    o.push(`${IND}}`);
+  }
+
+  const natChains = (out: Out, fam: Fam | null, inet: boolean) => {
+    for (const hook of ['prerouting', 'postrouting'] as const) {
+      const mine = nat.filter((n) => (hook === 'prerouting') === (n.kind === 'dnat') && (fam === null || natFamily(n) === fam));
+      out.blank();
+      out.push(`${IND}chain ${hook} {`);
+      out.push(`${IND}${IND}type nat hook ${hook} priority ${prio(hook === 'prerouting' ? 'dstnat' : 'srcnat')}; policy accept;`);
+      for (const n of mine) {
+        const st = natStatement(n, natFamily(n), inet, d, target);
+        if (st) out.push(`${IND}${IND}${st}`, n.id);
+      }
+      out.push(`${IND}}`);
+    }
+  };
+
+  if (nat.length > 0 && caps.inetNat) natChains(o, null, true);
+  o.push('}');
+
+  if (nat.length > 0 && !caps.inetNat) {
+    d.fallback(`NAT in the inet family needs nftables 0.9.1+ (kernel 5.2+); NAT is written to separate ip / ip6 tables for ${target.version}.`);
+    for (const fam of ['ipv4', 'ipv6'] as const) {
+      if (!nat.some((n) => natFamily(n) === fam)) continue;
+      const family = fam === 'ipv4' ? 'ip' : 'ip6';
+      o.blank();
+      reset(o, family, `${TABLE}_nat`, target);
+      o.push(`table ${family} ${TABLE}_nat {`);
+      const inner = new Out();
+      natChains(inner, fam, false);
+      o.add(inner.lines);
+      o.push('}');
+    }
+  }
+
+  if (target.distro && target.distro.defaultTool !== 'nftables' && target.distro.defaultTool !== 'iptables') {
+    d.note(`${target.distro.name} ships ${target.distro.defaultTool} as its firewall manager. Disable it before loading this ruleset so two managers do not fight.`);
+  }
+  if (rules.some((r) => r.rule.rateLimit && r.rule.action === 'accept')) {
+    d.note('Rate limits use "limit rate", which is shared by all clients of the rule (not per source address).');
+  }
+
+  const sysctl: string[] = [];
+  if (opt.forwarding || nat.length > 0) {
+    sysctl.push('sysctl -w net.ipv4.ip_forward=1 >/dev/null');
+    if (opt.ipv6) sysctl.push('sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null');
+  }
+
+  const files: OutFile[] = [
+    { name: 'emberwall.nft', path: '/etc/nftables.conf', lang: 'nft', description: 'nftables ruleset (nft -f)', lines: o.lines },
+    safeApplyScript({
+      toolLabel: target.label,
+      backup: ['nft list ruleset > "$BACKUP/ruleset.nft"'],
+      check: ['nft -c -f "$DIR/emberwall.nft"'],
+      apply: [...sysctl, 'nft -f "$DIR/emberwall.nft"'],
+      rollback: ['nft flush ruleset', 'nft -f "$BACKUP/ruleset.nft"'],
+      persist: nftPersistHints(target),
+    }),
+  ];
+  return { target, files, diagnostics: d.list };
+}
