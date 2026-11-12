@@ -2,7 +2,7 @@
 // Pure functions only (no network), shared by the server, the browser and the tests.
 import { importFirewalldXml } from './import/firewalldXml';
 import { importIptablesSave } from './import/iptablesSave';
-import { importNft } from './import/nft';
+import { filterTables, importNft } from './import/nft';
 import type { ImportReport } from './import/shared';
 import { importUfw } from './import/ufw';
 import { compareVersions, DISTROS, VERSIONS, type TargetSelection, type Tool } from './targets';
@@ -148,7 +148,15 @@ export function readLiveConfig(out: ProbeOutput, tool: Tool): LiveConfig | null 
   const text = (k: ProbeKey) => (ok(out[k]) ? out[k]!.stdout : '');
   if (tool === 'nftables') {
     const t = text('nftRuleset');
-    return { tool, raw: [{ name: 'nft list ruleset', text: t }], report: importNft(t) };
+    // Every table with a filter chain gets a say: a packet must be accepted by all of them.
+    // That cannot be shown as one rule list, so read Emberwall's own table when it is there.
+    const tables = filterTables(t);
+    const own = tables.find((x) => x === 'inet emberwall');
+    const report = importNft(t, own && tables.length > 1 ? own : undefined);
+    const others = tables.filter((x) => x !== own);
+    if (own && others.length > 0) report.notes = [`Showing the "${own}" table. ${others.length === 1 ? 'Another table also filters' : 'Other tables also filter'} traffic on this server and ${others.length === 1 ? 'is' : 'are'} not part of this view: ${others.join(', ')}. A packet has to be accepted by every one of them.`];
+    else if (!own && tables.length > 1) report.notes = [`This server has ${tables.length} tables that filter traffic (${tables.join(', ')}). A packet has to be accepted by every one of them; the rules below list them one after another, so treat the audit and drift results as approximate.`];
+    return { tool, raw: [{ name: 'nft list ruleset', text: t }], report };
   }
   if (tool === 'iptables') {
     const v4 = text('iptablesSave');

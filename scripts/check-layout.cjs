@@ -1,5 +1,6 @@
 // Layout check: no two cards may overlap, and no page may scroll sideways.
-// Usage: node scripts/check-layout.cjs [baseUrl]   (needs `npm run preview` or the server running)
+// Usage: node scripts/check-layout.cjs [baseUrl]   (needs `npm run preview` or the server running;
+// for a server-mode instance set EW_USER and EW_PASS)
 const { chromium } = require('playwright');
 
 const SIZES = [[1440, 900], [1100, 800], [820, 1000]];
@@ -12,6 +13,13 @@ const SIZES = [[1440, 900], [1100, 800], [820, 1000]];
   const page = await ctx.newPage();
   const problems = [];
   await page.goto(base);
+  // Server mode: sign in with EW_USER / EW_PASS when the login screen is shown.
+  await page.waitForSelector('nav, form');
+  if (!(await page.locator('nav').count())) {
+    await page.fill('input[autocomplete="username"]', process.env.EW_USER || '');
+    await page.fill('input[type="password"]', process.env.EW_PASS || '');
+    await page.click('button:has-text("Sign in")');
+  }
   await page.waitForSelector('nav');
   // A project with enough content to fill every panel.
   await page.click('nav button[title="Templates"]');

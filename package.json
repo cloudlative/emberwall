@@ -17,7 +17,11 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "cli": "vite-node cli/emberwall.ts --",
-    "build:cli": "esbuild cli/emberwall.ts --bundle --platform=node --format=esm --outfile=dist-cli/emberwall.mjs"
+    "build:cli": "esbuild cli/emberwall.ts --bundle --platform=node --format=esm --outfile=dist-cli/emberwall.mjs",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --external:ssh2 --outfile=dist-server/emberwall-server.mjs --banner:js=\"import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);\"",
+    "server": "npm run build && npm run build:server && node dist-server/emberwall-server.mjs",
+    "server:dev": "vite-node server/index.ts",
+    "check:layout": "node scripts/check-layout.cjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

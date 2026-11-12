@@ -118,6 +118,16 @@ describe('live server detection', () => {
     expect(semanticDiff(web, ipt.report.project)).toEqual([]);
     expect(ipt.report.project.rules.some((r) => r.family === 'both')).toBe(true);
   });
+  it('reads Emberwall\'s own table alone and names other filtering tables', () => {
+    const legacy = 'table inet legacy {\n\tchain input {\n\t\ttype filter hook input priority filter; policy accept;\n\t\ttcp dport 23 accept\n\t}\n}\n';
+    const both = readLiveConfig({ ...base, nftRuleset: res(legacy + nftText) }, 'nftables')!;
+    expect(semanticDiff(web, both.report.project)).toEqual([]);
+    expect(both.report.notes?.[0]).toContain('inet legacy');
+    expect(both.report.project.rules.some((r) => r.ports.includes('23'))).toBe(false);
+    const foreign = readLiveConfig({ ...base, nftRuleset: res(legacy + legacy.replace('legacy', 'second')) }, 'nftables')!;
+    expect(foreign.report.notes?.[0]).toMatch(/2 tables that filter traffic/);
+    expect(readLiveConfig(base, 'nftables')!.report.notes).toBeUndefined();
+  });
   it('only builds a zone path from a safe zone name', () => {
     expect(zoneXmlCommand('public\n')).toBe('cat /etc/firewalld/zones/public.xml');
     expect(zoneXmlCommand('../../etc/shadow')).toBeNull();

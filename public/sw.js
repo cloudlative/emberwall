@@ -21,7 +21,9 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   // Only same-origin GETs. Requests to other origins (the optional assistant's API calls) are never touched.
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  const url = new URL(req.url);
+  // Never cache or answer API calls: sessions and live server data must always come from the server.
+  if (req.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
   const put = (res) => {
     if (res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone()));
     return res;

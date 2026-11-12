@@ -45,5 +45,7 @@ function precache(): Plugin {
 export default defineConfig({
   base: './',
   plugins: [react(), precache()],
+  // In development the API is served by `npm run server:dev`; without it the app runs browser-only.
+  server: { proxy: { '/api': { target: 'http://127.0.0.1:8787', changeOrigin: false } } },
   test: { environment: 'node', include: ['tests/**/*.test.ts'] },
 });

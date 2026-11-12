@@ -4,6 +4,8 @@ export interface ImportReport {
   project: Project;
   imported: number;
   skipped: { line: string; reason: string }[];
+  /** Things the reader should know about how complete this picture is. */
+  notes?: string[];
 }
 
 /** Rules that only restate the baseline (loopback, established, invalid, essential ICMP) become options. */

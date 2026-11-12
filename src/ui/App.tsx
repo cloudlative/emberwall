@@ -1,5 +1,5 @@
 import {
-  ArrowLeftRight, Ban, BadgeCheck, Cloud, Sparkles, Wand2, Camera, Check, Cpu, FileSearch, Server, Share2, ClipboardCheck, Columns2, Command, FlaskConical, FolderInput, Gauge, Grid3x3, Hammer, Info, Layers, LayoutDashboard, LayoutTemplate,
+  Activity as ActivityIcon, ArrowLeftRight, Ban, BadgeCheck, Cloud, FolderGit2, HardDrive, Radio, Users, Sparkles, Wand2, Camera, Check, Cpu, FileSearch, Server, Share2, ClipboardCheck, Columns2, Command, FlaskConical, FolderInput, Gauge, Grid3x3, Hammer, Info, Layers, LayoutDashboard, LayoutTemplate,
   ListChecks, Moon, Network, Plus, Redo2, Search, ShieldAlert, Sun, Table2, Undo2, Waypoints, XCircle,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -7,6 +7,7 @@ import { score } from '../core/lint';
 import { runTests } from '../core/reach';
 import { DISTROS, TOOL_LABEL, type Tool } from '../core/targets';
 import { TEMPLATES } from '../core/templates';
+import { can, useSession } from '../store/useSession';
 import { readShare, useFindings, useStore, type PageId } from '../store/useStore';
 import { RuleEditor } from './components/RuleEditor';
 import { Wizard, wizardSeen } from './components/Wizard';
@@ -23,6 +24,7 @@ import { NatPage } from './pages/Nat';
 import { ObjectsPage } from './pages/Objects';
 import { ReachabilityPage, TestsPage, ZonesPage } from './pages/Policy';
 import { RulesPage } from './pages/Rules';
+import { AccountChip, ActivityPage, LivePage, LoginGate, ProjectsPage, ServersPage, UsersPage } from './pages/Server';
 import { SimulatorPage } from './pages/Simulator';
 import { TargetsPage } from './pages/Targets';
 
@@ -31,9 +33,16 @@ interface NavItem {
   label: string;
   icon: ReactNode;
   group: string;
+  /** Server mode only, and the lowest role that may see it. */
+  server?: 'viewer' | 'operator' | 'admin';
 }
 
 const NAV: NavItem[] = [
+  { id: 'servers', label: 'Servers', icon: <HardDrive size={16} />, group: 'Team', server: 'viewer' },
+  { id: 'live', label: 'Live server', icon: <Radio size={16} />, group: 'Team', server: 'viewer' },
+  { id: 'projects', label: 'Team projects', icon: <FolderGit2 size={16} />, group: 'Team', server: 'viewer' },
+  { id: 'users', label: 'Users', icon: <Users size={16} />, group: 'Team', server: 'admin' },
+  { id: 'activity', label: 'Activity', icon: <ActivityIcon size={16} />, group: 'Team', server: 'operator' },
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} />, group: 'Design' },
   { id: 'rules', label: 'Rules', icon: <ListChecks size={16} />, group: 'Design' },
   { id: 'nat', label: 'NAT', icon: <ArrowLeftRight size={16} />, group: 'Design' },
@@ -66,6 +75,7 @@ const PAGES: Partial<Record<PageId, () => JSX.Element>> = {
   snapshots: SnapshotsPage, transfer: TransferPage, zones: ZonesPage, reach: ReachabilityPage, tests: TestsPage,
   blocklists: BlocklistsPage, hardening: HardeningPage, compliance: CompliancePage,
   fleet: FleetPage, topology: TopologyPage, logs: LogsPage, assistant: AssistantPage, targets: TargetsPage,
+  servers: ServersPage, live: LivePage, projects: ProjectsPage, users: UsersPage, activity: ActivityPage,
 };
 
 function Logo() {
@@ -103,7 +113,7 @@ function Palette({ open, onClose, onWizard }: { open: boolean; onClose: () => vo
     const st = useStore.getState();
     const list: Cmd[] = [
       { id: 'new', label: 'Add rule', hint: 'Action', icon: <Plus size={15} />, run: () => { st.setPage('rules'); st.editRule('new:in'); } },
-      ...NAV.map((n) => ({ id: `go:${n.id}`, label: `Go to ${n.label}`, hint: 'Page', icon: n.icon, run: () => st.setPage(n.id) })),
+      ...NAV.filter((n) => !n.server || (useSession.getState().mode === 'server' && can(useSession.getState().user, n.server))).map((n) => ({ id: `go:${n.id}`, label: `Go to ${n.label}`, hint: 'Page', icon: n.icon, run: () => st.setPage(n.id) })),
       { id: 'wizard', label: 'Run the setup wizard', hint: 'Action', icon: <Wand2 size={15} />, run: onWizard },
       { id: 'undo', label: 'Undo', hint: 'Ctrl+Z', icon: <Undo2 size={15} />, run: st.undo },
       { id: 'redo', label: 'Redo', hint: 'Ctrl+Shift+Z', icon: <Redo2 size={15} />, run: st.redo },
@@ -194,6 +204,14 @@ export function App() {
   const canRedo = useStore((s) => s.future.length > 0);
   const findings = useFindings();
   const { setPage, undo, redo, setTheme, update } = useStore.getState();
+  const mode = useSession((st) => st.mode);
+  const sessionUser = useSession((st) => st.user);
+  const needsLogin = mode === 'server' && !sessionUser;
+  useEffect(() => {
+    void useSession.getState().refresh();
+  }, []);
+  // What this person may see: server-mode pages need a server and a sufficient role.
+  const nav = useMemo(() => NAV.filter((n) => !n.server || (mode === 'server' && can(sessionUser, n.server))), [mode, sessionUser]);
   const [palette, setPalette] = useState(false);
   const [wizard, setWizard] = useState(() => !wizardSeen() && !readShare(location.hash));
   const openWizard = useMemo(() => () => setWizard(true), []);
@@ -240,8 +258,18 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [redo, undo]);
 
-  const Page = PAGES[page] ?? DashboardPage;
-  const groups = [...new Set(NAV.map((n) => n.group))];
+  const Page = (nav.some((n) => n.id === page) ? PAGES[page] : undefined) ?? DashboardPage;
+  const groups = [...new Set(nav.map((n) => n.group))].sort((a, b) => Number(a === 'Team') - Number(b === 'Team'));
+
+  if (mode === 'checking') return <div className="backdrop"><b /><i /></div>;
+  if (needsLogin) {
+    return (
+      <>
+        <div className="backdrop"><b /><i /></div>
+        <LoginGate />
+      </>
+    );
+  }
 
   return (
     <>
@@ -254,7 +282,7 @@ export function App() {
               <div key={g}>
                 <div className="mb-1 hidden px-3 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-mute/70 lg:block">{g}</div>
                 <div className="space-y-0.5">
-                  {NAV.filter((n) => n.group === g).map((n) => (
+                  {nav.filter((n) => n.group === g).map((n) => (
                     <button key={n.id} className="nav-item justify-center lg:justify-start" aria-current={page === n.id ? 'page' : undefined} onClick={() => setPage(n.id)} title={n.label}>
                       {n.icon}
                       <span className="hidden flex-1 text-left lg:inline">{n.label}</span>
@@ -266,7 +294,7 @@ export function App() {
               </div>
             ))}
           </nav>
-          <div className="mt-3 hidden px-4 text-[11px] leading-snug text-mute lg:block">Runs entirely in your browser. Rulesets are never uploaded.</div>
+          <div className="mt-3 hidden px-4 text-[11px] leading-snug text-mute lg:block">{mode === 'server' ? 'Team server: saved projects, inventory and pushes go through this Emberwall server.' : 'Runs entirely in your browser. Rulesets are never uploaded.'}</div>
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">
@@ -290,6 +318,7 @@ export function App() {
               <button className="btn btn-icon" onClick={undo} disabled={!canUndo} aria-label="Undo" title="Undo (Ctrl+Z)"><Undo2 size={15} /></button>
               <button className="btn btn-icon" onClick={redo} disabled={!canRedo} aria-label="Redo" title="Redo (Ctrl+Shift+Z)"><Redo2 size={15} /></button>
               <button className="btn" onClick={() => setPalette(true)} title="Command palette"><Command size={14} /><span className="hidden sm:inline">Search</span><kbd className="ml-1 hidden font-mono text-[10.5px] text-mute sm:inline">Ctrl K</kbd></button>
+              {mode === 'server' && <AccountChip />}
               <button className="btn btn-icon" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme" title="Toggle theme">{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}</button>
             </div>
           </header>

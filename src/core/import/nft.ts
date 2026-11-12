@@ -97,7 +97,23 @@ function parseRule(text: string, direction: Direction, ctx: Ctx): { rule: Rule; 
   return { rule: r, iif, icmp6Set };
 }
 
-export function importNft(text: string): ImportReport {
+/** Tables in a ruleset that have a filter chain attached to input, forward or output. */
+export function filterTables(text: string): string[] {
+  const out: string[] = [];
+  let table = '';
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    const t = /^table (\w+) ([\w-]+) \{$/.exec(line);
+    if (t) table = `${t[1]} ${t[2]}`;
+    else if (table && /^type filter hook (input|forward|output) /.test(line) && !out.includes(table)) out.push(table);
+  }
+  return out;
+}
+
+/**
+ * @param onlyTable "family name" of the one table to read (e.g. "inet emberwall"); others are skipped.
+ */
+export function importNft(text: string, onlyTable?: string): ImportReport {
   const project = baselineOff(emptyProject('Imported from nftables'));
   const skipped: ImportReport['skipped'] = [];
   const ctx: Ctx = { project, sets: new Map(), skip: (line, reason) => skipped.push({ line, reason }) };
@@ -107,6 +123,7 @@ export function importNft(text: string): ImportReport {
   let setBuf = '';
   let depth = 0;
   let sawV6 = false;
+  let ignoring = false;
   const rules: Rule[] = [];
 
   for (let i = 0; i < lines.length; i += 1) {
@@ -115,8 +132,10 @@ export function importNft(text: string): ImportReport {
     let m: RegExpExecArray | null;
     if ((m = /^table (\w+) ([\w-]+) \{$/.exec(line))) {
       depth = 1;
+      ignoring = !!onlyTable && `${m[1]} ${m[2]}` !== onlyTable;
       continue;
     }
+    if (ignoring) continue;
     if ((m = /^set ([\w-]+) \{$/.exec(line))) {
       setName = m[1];
       setBuf = '';
