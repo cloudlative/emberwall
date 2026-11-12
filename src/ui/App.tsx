@@ -1,9 +1,10 @@
 import {
-  ArrowLeftRight, Camera, Check, Columns2, Command, FlaskConical, FolderInput, Gauge, Hammer, Info, LayoutDashboard, LayoutTemplate,
+  ArrowLeftRight, Camera, Check, ClipboardCheck, Columns2, Command, FlaskConical, FolderInput, Gauge, Grid3x3, Hammer, Info, Layers, LayoutDashboard, LayoutTemplate,
   ListChecks, Moon, Network, Plus, Redo2, Search, ShieldAlert, Sun, Table2, Undo2, Waypoints, XCircle,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { score } from '../core/lint';
+import { runTests } from '../core/reach';
 import { DISTROS, TOOL_LABEL, type Tool } from '../core/targets';
 import { TEMPLATES } from '../core/templates';
 import { readShare, useFindings, useStore, type PageId } from '../store/useStore';
@@ -16,6 +17,7 @@ import { FlowPage } from './pages/Flow';
 import { SnapshotsPage, TemplatesPage, TransferPage, VersionsPage } from './pages/Library';
 import { NatPage } from './pages/Nat';
 import { ObjectsPage } from './pages/Objects';
+import { ReachabilityPage, TestsPage, ZonesPage } from './pages/Policy';
 import { RulesPage } from './pages/Rules';
 import { SimulatorPage } from './pages/Simulator';
 
@@ -31,10 +33,13 @@ const NAV: NavItem[] = [
   { id: 'rules', label: 'Rules', icon: <ListChecks size={16} />, group: 'Design' },
   { id: 'nat', label: 'NAT', icon: <ArrowLeftRight size={16} />, group: 'Design' },
   { id: 'objects', label: 'Objects', icon: <Network size={16} />, group: 'Design' },
+  { id: 'zones', label: 'Zones', icon: <Layers size={16} />, group: 'Design' },
   { id: 'build', label: 'Build', icon: <Hammer size={16} />, group: 'Ship' },
   { id: 'compare', label: 'Compare', icon: <Columns2 size={16} />, group: 'Ship' },
   { id: 'versions', label: 'Version matrix', icon: <Table2 size={16} />, group: 'Ship' },
   { id: 'simulator', label: 'Simulator', icon: <FlaskConical size={16} />, group: 'Verify' },
+  { id: 'reach', label: 'Reachability', icon: <Grid3x3 size={16} />, group: 'Verify' },
+  { id: 'tests', label: 'Policy tests', icon: <ClipboardCheck size={16} />, group: 'Verify' },
   { id: 'audit', label: 'Audit', icon: <ShieldAlert size={16} />, group: 'Verify' },
   { id: 'flow', label: 'Packet flow', icon: <Waypoints size={16} />, group: 'Verify' },
   { id: 'templates', label: 'Templates', icon: <LayoutTemplate size={16} />, group: 'Library' },
@@ -45,7 +50,7 @@ const NAV: NavItem[] = [
 const PAGES: Record<PageId, () => JSX.Element> = {
   dashboard: DashboardPage, rules: RulesPage, nat: NatPage, objects: ObjectsPage, build: BuildPage, compare: ComparePage,
   versions: VersionsPage, simulator: SimulatorPage, audit: AuditPage, flow: FlowPage, templates: TemplatesPage,
-  snapshots: SnapshotsPage, transfer: TransferPage,
+  snapshots: SnapshotsPage, transfer: TransferPage, zones: ZonesPage, reach: ReachabilityPage, tests: TestsPage,
 };
 
 function Logo() {
@@ -175,6 +180,8 @@ export function App() {
   const { setPage, undo, redo, setTheme, update } = useStore.getState();
   const [palette, setPalette] = useState(false);
   const urgent = findings.filter((f) => f.severity === 'critical' || f.severity === 'high').length;
+  const project = useStore((st) => st.project);
+  const failingTests = useMemo(() => runTests(project).filter((t) => !t.pass).length, [project]);
   const s = score(findings);
 
   useEffect(() => {
@@ -231,6 +238,7 @@ export function App() {
                       {n.icon}
                       <span className="hidden flex-1 text-left lg:inline">{n.label}</span>
                       {n.id === 'audit' && urgent > 0 && <span className="badge badge-bad hidden lg:inline-flex">{urgent}</span>}
+                      {n.id === 'tests' && failingTests > 0 && <span className="badge badge-bad hidden lg:inline-flex">{failingTests}</span>}
                     </button>
                   ))}
                 </div>
@@ -246,6 +254,9 @@ export function App() {
             <button className="badge badge-mute normal-case" onClick={() => setPage('audit')} title="Posture score from the audit">
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: s >= 75 ? 'var(--ok)' : s >= 50 ? 'var(--warn)' : 'var(--bad)' }} /> Score {s}
             </button>
+            {failingTests > 0 && (
+              <button className="badge badge-bad normal-case" onClick={() => setPage('tests')}>{failingTests} test{failingTests > 1 ? 's' : ''} failing</button>
+            )}
             <div className="ml-auto flex flex-wrap items-center gap-2">
               <TargetPicker compact />
               <span className="mx-1 hidden h-6 w-px xl:block" style={{ background: 'var(--line)' }} />

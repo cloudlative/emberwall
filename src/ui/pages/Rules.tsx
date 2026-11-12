@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Copy, FileText, Gauge, GripVertical, ListPlus, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Clock, Copy, FileText, Gauge, GripVertical, ListPlus, Pencil, Plus, Trash2, Users } from 'lucide-react';
 import { useState } from 'react';
 import { DIRECTION_LABEL, uid, type Direction, type Policy, type Project, type Rule } from '../../core/model';
 import { portLabel } from '../../core/net';
@@ -75,7 +75,9 @@ function RuleRow({ rule, index, count, onDropOn }: { rule: Rule; index: number; 
         <div className="flex items-center gap-2">
           <span className="truncate text-[13px] font-medium">{rule.name}</span>
           {rule.log && <span title="Logged"><FileText size={12} className="text-mute" /></span>}
-          {rule.rateLimit && <span title={`Rate limit ${rule.rateLimit.rate}/${rule.rateLimit.per}`}><Gauge size={12} className="text-mute" /></span>}
+          {rule.rateLimit && <span title={`Rate limit ${rule.rateLimit.rate}/${rule.rateLimit.per}${rule.rateLimit.perSource ? ' per client' : ''}`}><Gauge size={12} className="text-mute" /></span>}
+          {rule.connLimit && <span title={`At most ${rule.connLimit} connections per client`}><Users size={12} className="text-mute" /></span>}
+          {rule.schedule && <span title={`Active ${rule.schedule.days.join(' ')} ${rule.schedule.from}-${rule.schedule.to}`}><Clock size={12} className="text-mute" /></span>}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-1 text-[11.5px] text-mute">
           <span className="chip">{PROTO_LABEL[rule.proto]}{rule.proto === 'icmp' && rule.icmpType ? ` ${rule.icmpType}` : ''}</span>
@@ -83,6 +85,9 @@ function RuleRow({ rule, index, count, onDropOn }: { rule: Rule; index: number; 
             <span key={pt} className="chip" title={portLabel(pt)}>{pt}</span>
           ))}
           <span className="max-w-full truncate px-0.5">{s.src} → {s.dst}</span>
+          {rule.srcZone && <span className="chip">from zone {project.zones.find((z) => z.id === rule.srcZone)?.name ?? '?'}</span>}
+          {rule.dstZone && <span className="chip">to zone {project.zones.find((z) => z.id === rule.dstZone)?.name ?? '?'}</span>}
+          {rule.srcMac && <span className="chip">{rule.srcMac}</span>}
           {rule.inIface && <span className="chip">in {rule.inIface}</span>}
           {rule.outIface && <span className="chip">out {rule.outIface}</span>}
           {rule.family !== 'both' && <span className="chip">{rule.family === 'ipv4' ? 'IPv4' : 'IPv6'}</span>}
@@ -102,6 +107,45 @@ function RuleRow({ rule, index, count, onDropOn }: { rule: Rule; index: number; 
         <button className="btn btn-ghost btn-icon" aria-label="Delete" onClick={() => update((p) => ({ ...p, rules: p.rules.filter((r) => r.id !== rule.id) }))}><Trash2 size={14} /></button>
       </div>
     </div>
+  );
+}
+
+function ProtectionsPanel() {
+  const pr = useStore((s) => s.project.protections ?? {});
+  const update = useStore((s) => s.update);
+  const set = (patch: Partial<Project['protections']>) => update((p) => ({ ...p, protections: { ...p.protections, ...patch } }));
+  const num = (value: number, onChange: (n: number) => void, label: string) => (
+    <input type="number" min={1} aria-label={label} className="field !w-[72px] !px-2 !py-1 font-mono" value={value} onChange={(e) => onChange(Math.max(1, Number(e.target.value) || 1))} />
+  );
+  return (
+    <section className="glass flex-none px-4 py-3.5">
+      <div className="mb-2.5 text-[13px] font-semibold">Attack protection <span className="ml-1 font-normal text-mute">nftables and iptables; ufw via fragment</span></div>
+      <div className="grid gap-2 2xl:grid-cols-3">
+        <div className="tile px-3 py-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0"><div className="text-[12.5px] font-medium">SYN flood guard</div><div className="truncate text-[11.5px] text-mute">Drop clients opening connections too fast</div></div>
+            <Switch label="SYN flood guard" checked={!!pr.synFlood} onChange={(v) => set({ synFlood: v ? { rate: 25, burst: 50 } : undefined })} />
+          </div>
+          {pr.synFlood && <div className="mt-2 flex items-center gap-1.5 text-[12px] text-mute">{num(pr.synFlood.rate, (rate) => set({ synFlood: { ...pr.synFlood!, rate } }), 'SYN rate')} /s per client, burst {num(pr.synFlood.burst, (burst) => set({ synFlood: { ...pr.synFlood!, burst } }), 'SYN burst')}</div>}
+        </div>
+        <div className="tile flex items-center justify-between gap-3 px-3 py-2">
+          <div className="min-w-0"><div className="text-[12.5px] font-medium">Port-scan filter</div><div className="truncate text-[11.5px] text-mute">Drop TCP flag combinations only scanners send</div></div>
+          <Switch label="Port-scan filter" checked={!!pr.portScan} onChange={(v) => set({ portScan: v || undefined })} />
+        </div>
+        <div className="tile px-3 py-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0"><div className="text-[12.5px] font-medium">Auto-ban</div><div className="truncate text-[11.5px] text-mute">Ban clients that touch a trap port</div></div>
+            <Switch label="Auto-ban" checked={!!pr.autoBan} onChange={(v) => set({ autoBan: v ? { ports: ['23', '3389', '5900'], seconds: 3600 } : undefined })} />
+          </div>
+          {pr.autoBan && (
+            <div className="mt-2 space-y-1.5 text-[12px] text-mute">
+              <input aria-label="Trap ports" className="field !py-1 font-mono" value={pr.autoBan.ports.join(', ')} onChange={(e) => set({ autoBan: { ...pr.autoBan!, ports: e.target.value.split(/[\s,]+/).filter(Boolean) } })} />
+              <div className="flex items-center gap-1.5">ban for {num(pr.autoBan.seconds, (seconds) => set({ autoBan: { ...pr.autoBan!, seconds } }), 'Ban seconds')} seconds</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -151,6 +195,8 @@ export function RulesPage() {
               <OptionToggle k="logDropped" label="Log dropped" hint="Rate-limited log of policy drops" />
             </div>
           </section>
+
+          <ProtectionsPanel />
 
           <section className="glass flex min-h-[240px] flex-1 flex-col px-4 py-3.5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

@@ -1,5 +1,6 @@
+import { ChevronDown } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { ICMP_TYPES, newRule, type Action, type ConnState, type Direction, type Family, type Proto, type Rule } from '../../core/model';
+import { ICMP_TYPES, WEEKDAYS, newRule, type Action, type ConnState, type Direction, type Family, type Proto, type Rule } from '../../core/model';
 import { parseCidr, parsePort, portLabel } from '../../core/net';
 import { useStore } from '../../store/useStore';
 import { Field, Modal, Segmented, Switch, TagInput } from './ui';
@@ -14,12 +15,17 @@ export function RuleEditor() {
   const update = useStore((s) => s.update);
   const editRule = useStore((s) => s.editRule);
   const [draft, setDraft] = useState<Rule | null>(null);
+  const [advanced, setAdvanced] = useState(false);
   const isNew = !!editing && editing.startsWith('new:');
 
   useEffect(() => {
     if (!editing) setDraft(null);
     else if (editing.startsWith('new:')) setDraft(newRule({ name: '', direction: editing.slice(4) as Direction }));
-    else setDraft(project.rules.find((r) => r.id === editing) ?? null);
+    else {
+      const found = project.rules.find((r) => r.id === editing) ?? null;
+      setDraft(found);
+      setAdvanced(!!found && !!(found.srcPorts?.length || found.srcMac || found.connLimit || found.schedule || found.mark || found.srcZone || found.dstZone));
+    }
     // Only re-seed when a different rule is opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
@@ -143,7 +149,7 @@ export function RuleEditor() {
             <Switch label="Rate limit" checked={!!draft.rateLimit} onChange={(on) => set({ rateLimit: on ? { rate: 10, per: 'minute', burst: 20 } : undefined })} />
           </div>
           {draft.rateLimit && (
-            <div className="mt-2 flex items-center gap-1.5 text-[12px] text-mute">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px] text-mute">
               <input type="number" min={1} aria-label="Rate" className="field !w-16 !px-2 font-mono" value={draft.rateLimit.rate} onChange={(e) => set({ rateLimit: { ...draft.rateLimit!, rate: Math.max(1, Number(e.target.value) || 1) } })} />
               per
               <select aria-label="Per" className="field !w-auto" value={draft.rateLimit.per} onChange={(e) => set({ rateLimit: { ...draft.rateLimit!, per: e.target.value as 'second' | 'minute' | 'hour' } })}>
@@ -153,9 +159,73 @@ export function RuleEditor() {
               </select>
               burst
               <input type="number" min={1} aria-label="Burst" className="field !w-16 !px-2 font-mono" value={draft.rateLimit.burst} onChange={(e) => set({ rateLimit: { ...draft.rateLimit!, burst: Math.max(1, Number(e.target.value) || 1) } })} />
+              <label className="ml-1 flex items-center gap-1.5 text-ink" title="Count each client address separately; clients over the rate are dropped">
+                <Switch label="Per client" checked={!!draft.rateLimit.perSource} onChange={(v) => set({ rateLimit: { ...draft.rateLimit!, perSource: v || undefined } })} /> per client
+              </label>
             </div>
           )}
         </div>
+        <button type="button" className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wider text-mute hover:text-ink sm:col-span-2" onClick={() => setAdvanced((v) => !v)} aria-expanded={advanced}>
+          <ChevronDown size={14} style={{ transform: advanced ? 'none' : 'rotate(-90deg)', transition: '0.15s' }} /> Advanced matches
+        </button>
+        {advanced && (
+          <>
+            {project.zones.length > 0 && draft.direction !== 'out' && (
+              <Field label="Source zone">
+                <select className="field" value={draft.srcZone ?? ''} onChange={(e) => set({ srcZone: e.target.value || undefined })}>
+                  <option value="">Any zone</option>
+                  {project.zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
+                </select>
+              </Field>
+            )}
+            {project.zones.length > 0 && draft.direction !== 'in' && (
+              <Field label="Destination zone">
+                <select className="field" value={draft.dstZone ?? ''} onChange={(e) => set({ dstZone: e.target.value || undefined })}>
+                  <option value="">Any zone</option>
+                  {project.zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
+                </select>
+              </Field>
+            )}
+            {hasPorts && (
+              <Field label="Source ports" hint="Rarely needed; replies usually match by connection state.">
+                <TagInput value={draft.srcPorts ?? []} onChange={(v) => set({ srcPorts: v.length ? v : undefined })} placeholder="any" validate={(v) => !!parsePort(v)} />
+              </Field>
+            )}
+            <Field label="Connections per client" hint="Clients holding more are rejected. Empty = no limit.">
+              <input type="number" min={1} className="field font-mono" value={draft.connLimit ?? ''} placeholder="unlimited" onChange={(e) => set({ connLimit: e.target.value ? Math.max(1, Number(e.target.value)) : undefined })} />
+            </Field>
+            {draft.direction !== 'out' && (
+              <Field label="Source MAC address">
+                <input className="field font-mono" value={draft.srcMac ?? ''} placeholder="aa:bb:cc:dd:ee:ff" onChange={(e) => set({ srcMac: e.target.value.trim() || undefined })} />
+              </Field>
+            )}
+            <Field label="Packet mark">
+              <input className="field font-mono" value={draft.mark ?? ''} placeholder="0x1" onChange={(e) => set({ mark: e.target.value.trim() || undefined })} />
+            </Field>
+            <div className="tile px-3 py-2.5 sm:col-span-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[13px] font-medium">Schedule</div>
+                  <div className="text-[12px] text-mute">Rule is active only in this window (firewall host clock, UTC unless configured)</div>
+                </div>
+                <Switch label="Schedule" checked={!!draft.schedule} onChange={(on) => set({ schedule: on ? { days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], from: '08:00', to: '18:00' } : undefined })} />
+              </div>
+              {draft.schedule && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px] text-mute">
+                  {WEEKDAYS.map((d) => {
+                    const on = draft.schedule!.days.includes(d);
+                    return (
+                      <button key={d} type="button" aria-pressed={on} className={`chip !py-1 ${on ? '!border-ember-400/70 text-ink' : 'text-mute'}`} onClick={() => set({ schedule: { ...draft.schedule!, days: on ? draft.schedule!.days.filter((x) => x !== d) : WEEKDAYS.filter((x) => x === d || draft.schedule!.days.includes(x)) } })}>{d}</button>
+                    );
+                  })}
+                  <input type="time" aria-label="From" className="field !w-auto font-mono" value={draft.schedule.from} onChange={(e) => set({ schedule: { ...draft.schedule!, from: e.target.value } })} />
+                  to
+                  <input type="time" aria-label="To" className="field !w-auto font-mono" value={draft.schedule.to} onChange={(e) => set({ schedule: { ...draft.schedule!, to: e.target.value } })} />
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </Modal>
   );

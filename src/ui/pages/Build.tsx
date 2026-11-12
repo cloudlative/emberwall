@@ -1,12 +1,13 @@
 import { Download, Link2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { compile, fileText } from '../../core/compile';
+import { iacFiles } from '../../core/compile/iac';
 import { diffLines, diffStats } from '../../core/diff';
 import { DISTROS, resolveTarget, TOOL_LABEL, VERSIONS, type TargetSelection, type Tool } from '../../core/targets';
 import { copyText, download, shareUrl, useCompiled, useStore } from '../../store/useStore';
 import { CodeView, DiffView } from '../components/CodeView';
 import { DiagnosticList, OutputPanel } from '../components/OutputPanel';
-import { PageHeader, Panel, Segmented } from '../components/ui';
+import { Modal, PageHeader, Panel, Segmented } from '../components/ui';
 import { TargetPicker } from '../components/TargetPicker';
 
 export function BuildPage() {
@@ -14,6 +15,8 @@ export function BuildPage() {
   const project = useStore((s) => s.project);
   const selection = useStore((s) => s.selection);
   const toast = useStore((s) => s.toast);
+  const automation = useMemo(() => iacFiles(result), [result]);
+  const [preview, setPreview] = useState<number | null>(null);
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader title="Build" sub="Pick the system you are deploying to. The output changes with the tool and its version.">
@@ -37,6 +40,23 @@ export function BuildPage() {
               ))}
             </ul>
           </Panel>
+          <Panel title="Automation" hint="The same build wrapped for your tooling">
+            <ul className="space-y-2">
+              {automation.map((f, i) => (
+                <li key={f.name} className="tile flex items-center justify-between gap-3 px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="truncate font-mono text-[12.5px]">{f.name}</div>
+                    <div className="truncate text-[12px] text-mute">{f.description}</div>
+                  </div>
+                  <div className="flex flex-none gap-1.5">
+                    <button className="btn" onClick={() => setPreview(i)}>View</button>
+                    <button className="btn btn-icon" aria-label={`Download ${f.name}`} onClick={() => download(f.name, fileText(f))}><Download size={14} /></button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-[12px] leading-snug text-mute">These load the ruleset without the confirm-or-rollback step, so try them on one host first.</p>
+          </Panel>
           <Panel title="How to apply safely">
             <ol className="list-decimal space-y-1.5 pl-4 text-[12.5px] leading-relaxed text-ink/90">
               <li>Copy every file to the server, into one directory.</li>
@@ -47,6 +67,9 @@ export function BuildPage() {
           </Panel>
         </div>
       </div>
+      <Modal open={preview !== null} onClose={() => setPreview(null)} wide title={preview !== null ? automation[preview].name : ''}>
+        {preview !== null && <CodeView lines={automation[preview].lines} lang={automation[preview].lang} className="max-h-[62vh]" />}
+      </Modal>
     </div>
   );
 }

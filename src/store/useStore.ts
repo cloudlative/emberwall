@@ -10,7 +10,7 @@ import { TEMPLATES } from '../core/templates';
 
 export type PageId =
   | 'dashboard' | 'rules' | 'nat' | 'objects' | 'build' | 'compare' | 'simulator'
-  | 'audit' | 'flow' | 'versions' | 'templates' | 'snapshots' | 'transfer';
+  | 'audit' | 'flow' | 'versions' | 'templates' | 'snapshots' | 'transfer' | 'zones' | 'reach' | 'tests';
 
 export interface Snapshot {
   id: string;
@@ -109,7 +109,17 @@ export const useStore = create<State>()(
     }),
     {
       name: 'emberwall',
-      version: 1,
+      version: 2,
+      // Projects saved by earlier versions lack newer fields: pass them through coerceProject.
+      migrate: (state: any) => {
+        try {
+          if (state?.project) state.project = coerceProject(state.project);
+          if (Array.isArray(state?.snapshots)) state.snapshots = state.snapshots.map((x: any) => ({ ...x, project: coerceProject(x.project) }));
+        } catch {
+          delete state.project;
+        }
+        return state;
+      },
       partialize: (s) => ({ project: s.project, selection: s.selection, snapshots: s.snapshots, theme: s.theme, page: s.page }),
     },
   ),

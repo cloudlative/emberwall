@@ -10,6 +10,8 @@ export interface Endpoint {
   detail: string;
   addr: string;
   iface?: string;
+  /** The outside zone itself: the same place as the Internet source. */
+  outside?: boolean;
 }
 
 export interface Service {
@@ -60,7 +62,7 @@ export function buildAxes(...projects: Project[]): Axes {
     }
     for (const z of p.zones) {
       const addr = z.networks.map(representative).find(Boolean) ?? (z.trust === 'untrusted' ? INTERNET : '10.255.0.2');
-      const ep: Endpoint = { id: `zone:${z.id}`, label: z.name, detail: [z.interfaces.join(', '), z.networks.join(', ')].filter(Boolean).join(' · ') || 'zone', addr, iface: z.interfaces[0] };
+      const ep: Endpoint = { outside: z === wan && z.networks.length === 0, id: `zone:${z.id}`, label: z.name, detail: [z.interfaces.join(', '), z.networks.join(', ')].filter(Boolean).join(' · ') || 'zone', addr, iface: z.interfaces[0] };
       // The outside zone without networks of its own is already covered by "Internet" as a source.
       if (!(z === wan && z.networks.length === 0) && !sources.has(ep.id)) sources.set(ep.id, ep);
       if (!targets.has(ep.id)) targets.set(ep.id, ep);
@@ -118,7 +120,7 @@ export function reachability(p: Project, axes: Axes = buildAxes(p)): ReachRow[] 
   const rows: ReachRow[] = [];
   for (const target of axes.targets) {
     for (const source of axes.sources) {
-      if (source.id === target.id) continue;
+      if (source.id === target.id || (source.id === 'internet' && target.outside)) continue;
       const cells = axes.services.map((svc) => {
         const r = simulate(p, packetFor(source, target, svc));
         return { verdict: r.verdict, decidedBy: r.decidedBy, ruleId: r.ruleId, limited: r.rateLimited };

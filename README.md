@@ -21,7 +21,14 @@ gives you the tooling around it:
 | **Audit** | Finds exposed services, any-any rules, shadowed and redundant rules, lock-out risk, broken DNS, port forwards without a forward rule. One-click fixes and a 0–100 posture score. |
 | **Safe apply** | Every build includes a script that backs up the running rules, applies the new ones, and rolls back automatically unless you confirm. The watchdog survives a dropped SSH session. |
 | **Compare** | The same ruleset for two targets, as a diff or side by side. Useful when planning an upgrade or a move from iptables to nftables. |
-| **Import** | Paste `iptables-save` output and migrate it to any backend. |
+| **Import** | Paste `iptables-save`, `nft list ruleset`, ufw commands or status, or a firewalld zone file, and migrate it to any backend. |
+| **Zones** | Name WAN, LAN, DMZ, VPN once; write rules "from LAN to WAN". |
+| **Reachability matrix** | A who-can-reach-what grid across the Internet, zones, groups and services, computed with the simulator. |
+| **Policy tests** | Save packets as assertions ("the database is never public"). They run on every change and fail visibly. |
+| **Semantic diff** | Between two snapshots: which access opened or closed, not only which lines changed. |
+| **Attack protection** | Per-client rate limits and connection limits, SYN-flood guard, port-scan filter, auto-ban trap ports. |
+| **Advanced matches** | Source ports, MAC address, packet mark, weekly schedules. |
+| **Automation export** | Ansible playbook, Terraform (SSH push) and cloud-init user data for every build. |
 | **Line linking** | Click a rule to highlight the lines it produced; click a line to jump to its rule. |
 | **Objects** | Reusable address and port groups; nftables output turns address groups into named sets. |
 | **NAT** | Masquerade, source NAT and port forwarding, including IPv6. |
@@ -43,6 +50,9 @@ fallback Emberwall emits without it, and the upstream commit that introduced it.
 | nftables | `th dport` (TCP and UDP in one rule) | 0.9.2 | one rule per protocol |
 | nftables | comments on tables and chains | 0.9.7 | left out |
 | nftables | `destroy table` | 1.0.7 (kernel 6.3) | `add table` + `delete table` |
+| nftables | `ct count` (connection limits) | 0.9.1 | limit left out, reported |
+| nftables | `meta hour` / `meta day` (schedules) | 0.9.3 | schedule left out, reported |
+| nftables | sets updated from rules | 0.9.7 | meter syntax; no auto-ban |
 | iptables | `iptables-restore --wait` | 1.6.2 | restore without lock wait |
 | iptables | `--random-fully` | 1.6.0 SNAT, 1.6.2 MASQUERADE | `--random` |
 | ufw | `ufw route` | 0.34 | `before.rules` fragment |
@@ -79,6 +89,9 @@ Requires Node 18+. The production build is a static site (`dist/`) that can be h
   automatically where the binaries are missing or unusable.
 - During development the generated ufw commands and firewalld rich rules were also parsed with the
   upstream ufw and firewalld parsers. That check is not part of the automated suite.
+- Importer tests compile each template, import the result and require that no access changes.
+- The generated Ansible playbooks pass `ansible-playbook --syntax-check`; the Terraform file has
+  not been run through `terraform validate`.
 
 - Emitted syntax was read against the current manual pages: `nft(8)` 1.1.6, `iptables(8)` and
   `iptables-extensions(8)` 1.8.11, `ufw(8)` 0.36.2, and `firewall-cmd(1)`,
@@ -89,12 +102,18 @@ script, and keep console access the first time you load a ruleset on a remote ma
 
 ## Known limits
 
-- Rate limits are per rule, not per source address (ufw's `limit` is the exception, and its rate is fixed).
+- Per-client rate limits, connection limits, schedules, MAC and mark matches and the attack
+  protections are native on nftables and iptables. ufw gets them through a `before.rules` fragment
+  (its own `limit` has a fixed rate); firewalld cannot express most of them and says so.
+- Zones expand to interface and network matches. On firewalld the interface part is dropped
+  (firewalld binds interfaces to its own zones); the compiler notes report it.
+- The reachability matrix and semantic diff cover IPv4 paths for the sources and services the
+  rules mention; they are a model of the ruleset, not a scan of a live host.
 - ufw and firewalld cannot express everything: ICMP rules and connection-state matches go to a
   `before.rules` fragment for ufw; firewalld drops per-rule interface and state matches. Each case
   is reported in the compiler notes rather than silently changed.
-- The importer reads `iptables-save` only. Negated matches, custom chains and exotic targets are
-  listed as skipped.
+- Importers cover the common rule shapes. Negated matches, custom chains, jumps, firewalld
+  services outside a built-in list and other unusual constructs are listed as skipped, not guessed.
 - Distribution versions are a snapshot; rolling releases move. Pick a custom version if yours differs.
 
 ## Project layout

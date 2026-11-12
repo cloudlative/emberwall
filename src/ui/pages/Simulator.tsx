@@ -1,6 +1,6 @@
-import { ArrowRight, Check, CircleSlash, Minus, Play } from 'lucide-react';
+import { ArrowRight, Check, CircleSlash, Minus, Play, Save } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { ICMP_TYPES, type ConnState, type Direction } from '../../core/model';
+import { ICMP_TYPES, uid, type ConnState, type Direction } from '../../core/model';
 import { simulate, type Packet } from '../../core/simulate';
 import { useStore } from '../../store/useStore';
 import { ActionBadge, Field, PageHeader, Panel, Segmented } from '../components/ui';
@@ -77,8 +77,16 @@ export function SimulatorPage() {
                 </>
               )}
             </div>
+            {!result.error && (
+              <button className={`btn flex-none ${result.ruleId ? '' : 'ml-auto'}`} style={result.ruleId ? { marginLeft: 'auto' } : undefined} title="Keep this packet and its current verdict as a policy test" onClick={() => {
+                const st = useStore.getState();
+                const name = `${pkt.proto.toUpperCase()}${pkt.port ? ` ${pkt.port}` : ''} from ${pkt.src} is ${result.verdict === 'accept' ? 'accepted' : 'blocked'}`;
+                st.update((p) => ({ ...p, tests: [...p.tests, { id: uid('t'), name, packet: { ...pkt }, expect: result.verdict === 'accept' ? 'accept' : 'block' }] }));
+                st.toast('Saved as policy test');
+              }}><Save size={14} /> Save as test</button>
+            )}
             {result.ruleId && (
-              <button className="btn ml-auto flex-none" onClick={() => { useStore.getState().selectRule(result.ruleId!); useStore.getState().setPage('rules'); }}>Show rule <ArrowRight size={14} /></button>
+              <button className="btn flex-none" onClick={() => { useStore.getState().selectRule(result.ruleId!); useStore.getState().setPage('rules'); }}>Show rule <ArrowRight size={14} /></button>
             )}
           </section>
           <Panel title="Trace" hint="Every check the packet went through, in order">
