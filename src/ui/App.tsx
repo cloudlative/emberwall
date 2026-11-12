@@ -1,5 +1,5 @@
 import {
-  ArrowLeftRight, Ban, BadgeCheck, Sparkles, Wand2, Camera, Check, Cpu, FileSearch, Server, Share2, ClipboardCheck, Columns2, Command, FlaskConical, FolderInput, Gauge, Grid3x3, Hammer, Info, Layers, LayoutDashboard, LayoutTemplate,
+  ArrowLeftRight, Ban, BadgeCheck, Cloud, Sparkles, Wand2, Camera, Check, Cpu, FileSearch, Server, Share2, ClipboardCheck, Columns2, Command, FlaskConical, FolderInput, Gauge, Grid3x3, Hammer, Info, Layers, LayoutDashboard, LayoutTemplate,
   ListChecks, Moon, Network, Plus, Redo2, Search, ShieldAlert, Sun, Table2, Undo2, Waypoints, XCircle,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -24,6 +24,7 @@ import { ObjectsPage } from './pages/Objects';
 import { ReachabilityPage, TestsPage, ZonesPage } from './pages/Policy';
 import { RulesPage } from './pages/Rules';
 import { SimulatorPage } from './pages/Simulator';
+import { TargetsPage } from './pages/Targets';
 
 interface NavItem {
   id: PageId;
@@ -42,6 +43,7 @@ const NAV: NavItem[] = [
   { id: 'hardening', label: 'Kernel hardening', icon: <Cpu size={16} />, group: 'Design' },
   { id: 'build', label: 'Build', icon: <Hammer size={16} />, group: 'Ship' },
   { id: 'compare', label: 'Compare', icon: <Columns2 size={16} />, group: 'Ship' },
+  { id: 'targets', label: 'More targets', icon: <Cloud size={16} />, group: 'Ship' },
   { id: 'versions', label: 'Version matrix', icon: <Table2 size={16} />, group: 'Ship' },
   { id: 'simulator', label: 'Simulator', icon: <FlaskConical size={16} />, group: 'Verify' },
   { id: 'reach', label: 'Reachability', icon: <Grid3x3 size={16} />, group: 'Verify' },
@@ -63,7 +65,7 @@ const PAGES: Partial<Record<PageId, () => JSX.Element>> = {
   versions: VersionsPage, simulator: SimulatorPage, audit: AuditPage, flow: FlowPage, templates: TemplatesPage,
   snapshots: SnapshotsPage, transfer: TransferPage, zones: ZonesPage, reach: ReachabilityPage, tests: TestsPage,
   blocklists: BlocklistsPage, hardening: HardeningPage, compliance: CompliancePage,
-  fleet: FleetPage, topology: TopologyPage, logs: LogsPage, assistant: AssistantPage,
+  fleet: FleetPage, topology: TopologyPage, logs: LogsPage, assistant: AssistantPage, targets: TargetsPage,
 };
 
 function Logo() {

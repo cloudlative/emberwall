@@ -31,6 +31,13 @@ gives you the tooling around it:
 | **Blocklists and geo-blocking** | Address sets dropped before everything else; kept in the project or downloaded on the server by a generated updater script and systemd timer. |
 | **Kernel hardening** | A sysctl drop-in (reverse-path filter, SYN cookies, redirects, source routing) shipped with every build. |
 | **Compliance profiles** | CIS-style, PCI DSS-style and an internet-server baseline, each control with evidence; printable to PDF. |
+| **More targets** | pf (OpenBSD and FreeBSD), Windows Firewall (PowerShell), AWS / Azure / Google Cloud security groups (Terraform) and Kubernetes NetworkPolicy, each with a list of what does not carry over. |
+| **Fleet** | Many hosts, one policy: shared rules plus host-scoped rules, each host compiled for its own tool and version, with an Ansible inventory and playbook. |
+| **Topology** | Diagram of sources, the firewall and the networks behind it, with the allowed flows drawn from the reachability engine. |
+| **Log analyzer** | Paste kernel firewall logs: top sources and ports, what the current ruleset would do with them, one-click block or allow. |
+| **Assistant (opt-in)** | With your own Anthropic API key: describe a policy in plain English and review proposed rules, or ask questions about the ruleset. Off until you add a key. |
+| **CLI** | `emberwall build / fleet / audit / test / compliance` for CI, with exit codes. |
+| **Offline app** | Installable; works without a network after the first visit. |
 | **Automation export** | Ansible playbook, Terraform (SSH push) and cloud-init user data for every build. |
 | **Line linking** | Click a rule to highlight the lines it produced; click a line to jump to its rule. |
 | **Objects** | Reusable address and port groups; nftables output turns address groups into named sets. |
@@ -39,6 +46,10 @@ gives you the tooling around it:
 | **Templates** | Web server, SSH bastion, database, Docker host, Kubernetes node, WireGuard gateway, NAT router, workstation. |
 
 ![Rule builder with live output](docs/rules.png)
+
+![Reachability matrix](docs/reachability.png)
+
+![Topology](docs/topology.png)
 
 ## Version handling
 
@@ -82,6 +93,41 @@ npm run build      # type-check and production build into dist/
 npm run preview    # serve the production build
 ```
 
+On first start a short wizard asks what the machine is, what it runs and where you administer it
+from, and builds a starting ruleset. Re-run it any time from the command palette (Ctrl+K).
+
+### Command line
+
+The same engine runs outside the browser, for CI:
+
+```bash
+npm run cli -- targets
+npm run cli -- build project.json --target debian-12:nftables --out out/ --iac
+npm run cli -- build project.json --target nftables@1.0.9 --strict   # fail on fallbacks
+npm run cli -- test project.json                # policy tests; exit 1 on failure
+npm run cli -- audit project.json --min-score 80
+npm run cli -- compliance project.json --profile pci --min 90
+npm run cli -- fleet project.json --out fleet/
+npm run build:cli                               # single-file bundle: dist-cli/emberwall.mjs
+```
+
+Project files are the JSON exported from **Import / export**.
+
+### Hosting
+
+`.github/workflows/pages.yml` deploys the site to GitHub Pages on every push to `main`. Enable it
+once under repository **Settings → Pages → Source: GitHub Actions**; until then that workflow fails
+at its deploy step.
+
+### The assistant and your data
+
+Everything in Emberwall runs in your browser. The one exception is the optional assistant: when you
+add your own Anthropic API key and press a button, your request and the project's rules, zones,
+groups and NAT settings go from your browser to the Anthropic API. The page shows exactly what is
+sent. The key stays in the tab unless you tick "remember". The assistant's API calls have been
+type-checked against the official SDK and its output validation is unit-tested, but it has not been
+exercised against the live API in this repository's tests.
+
 Requires Node 18+. The production build is a static site (`dist/`) that can be hosted anywhere.
 
 ## How the output was checked
@@ -93,6 +139,14 @@ Requires Node 18+. The production build is a static site (`dist/`) that can be h
 - During development the generated ufw commands and firewalld rich rules were also parsed with the
   upstream ufw and firewalld parsers. That check is not part of the automated suite.
 - Every generated shell script passes `sh -n`; IPv4 sysctl keys were checked against a running kernel.
+- Extra targets: the Terraform output passes `terraform fmt -check` and `terraform validate`
+  (aws, azurerm, google providers); the PowerShell passes the PowerShell 7 parser and runs against
+  stub cmdlets built from Microsoft's documented syntax; the NetworkPolicy YAML parses. **pf output
+  has not been run through `pfctl`** (no pf on Linux), and nothing was applied to a real cloud
+  account, Windows host or cluster.
+- The fleet playbook and inventory parse; the CLI is covered by tests and its nftables output was
+  checked with `nft -c`.
+- Offline loading was tested in a browser with the network switched off.
 - Importer tests compile each template, import the result and require that no access changes.
 - The generated Ansible playbooks pass `ansible-playbook --syntax-check`; the Terraform file has
   not been run through `terraform validate`.
@@ -121,6 +175,11 @@ script, and keep console access the first time you load a ruleset on a remote ma
   Country lists are downloaded by the server from a third-party site that Emberwall does not check.
 - Compliance profiles are Emberwall's reading of each framework's firewall-related intent. They
   support a review; they are not official benchmark content or a certification.
+- The extra targets filter differently from Linux: cloud security groups and NetworkPolicy are
+  allow-only, Windows has no rule order (block beats allow), pf rate limits ban the client on all
+  ports. Each difference is reported next to the output. Treat pf output as unverified until you
+  run `pfctl -nf` on it.
+- Fleet hosts share objects, zones and options; only rules and the target differ per host.
 - Importers cover the common rule shapes. Negated matches, custom chains, jumps, firewalld
   services outside a built-in list and other unusual constructs are listed as skipped, not guessed.
 - Distribution versions are a snapshot; rolling releases move. Pick a custom version if yours differs.
@@ -128,8 +187,11 @@ script, and keep console access the first time you load a ruleset on a remote ma
 ## Project layout
 
 ```
-src/core/            model, address maths, targets, simulator, audit, importer, diff
-src/core/compile/    one compiler per backend + the safe-apply script
+src/core/            model, targets, simulator, audit, reachability, compliance, fleet, logs, assistant
+src/core/compile/    one compiler per backend, blocklists, automation export, safe-apply script
+src/core/compile/extra/  pf, Windows, cloud security groups, Kubernetes
+src/core/import/     iptables-save, nft, ufw and firewalld importers
+cli/                 command-line entry point
 src/store/           app state, undo history, snapshots, share links
 src/ui/              glass shell, pages and components
 tests/               unit tests and real-tool validation

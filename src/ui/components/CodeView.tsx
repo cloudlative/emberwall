@@ -2,7 +2,7 @@ import { Fragment, type ReactNode } from 'react';
 import type { OutLang, OutLine } from '../../core/compile';
 import type { DiffLine } from '../../core/diff';
 
-const KEYWORDS = /^(table|chain|set|type|hook|priority|policy|elements|flags|comment|counter|log|prefix|limit|rate|burst|ufw|firewall-cmd|iptables|ip6tables|iptables-restore|ip6tables-restore|nft|sysctl|rule|zone|port|source|destination|family|masquerade|dnat|snat|COMMIT|destroy|add|delete|flush|set|echo|if|then|else|fi|sed|cp|rm|install|kill|sleep|read|printf|trap)$/;
+const KEYWORDS = /^(pass|block|match|quick|proto|from|to|on|inet|inet6|resource|variable|locals|provisioner|connection|ingress|egress|spec|kind|metadata|apiVersion|New-NetFirewallRule|Set-NetFirewallProfile|Remove-NetFirewallRule|Get-NetFirewallRule|table|chain|set|type|hook|priority|policy|elements|flags|comment|counter|log|prefix|limit|rate|burst|ufw|firewall-cmd|iptables|ip6tables|iptables-restore|ip6tables-restore|nft|sysctl|rule|zone|port|source|destination|family|masquerade|dnat|snat|COMMIT|destroy|add|delete|flush|set|echo|if|then|else|fi|sed|cp|rm|install|kill|sleep|read|printf|trap)$/;
 const GOOD = /^(accept|ACCEPT|allow|CONTINUE)$/;
 const BAD = /^(drop|DROP|reject|REJECT|deny|limit-drop)$/;
 
