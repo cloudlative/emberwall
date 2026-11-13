@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { connect } from 'node:net';
 import { join, relative } from 'node:path';
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
@@ -42,10 +43,34 @@ function precache(): Plugin {
   };
 }
 
+const API_HOST = '127.0.0.1';
+const API_PORT = 8787;
+let apiChecked = 0;
+let apiUp = false;
+
+/** Whether the development API is listening; the answer is reused for a second. */
+function apiIsUp(): Promise<boolean> {
+  if (Date.now() - apiChecked < 1000) return Promise.resolve(apiUp);
+  return new Promise((resolve) => {
+    const socket = connect({ host: API_HOST, port: API_PORT });
+    const finish = (up: boolean) => {
+      socket.destroy();
+      apiChecked = Date.now();
+      apiUp = up;
+      resolve(up);
+    };
+    socket.setTimeout(500, () => finish(false));
+    socket.once('connect', () => finish(true));
+    socket.once('error', () => finish(false));
+  });
+}
+
 export default defineConfig({
   base: './',
   plugins: [react(), precache()],
   // In development the API is served by `npm run server:dev`; without it the app runs browser-only.
-  server: { proxy: { '/api': { target: 'http://127.0.0.1:8787', changeOrigin: false } } },
+  // When it is not running, answer 404 quietly (the app reads that as "no server") rather than
+  // letting the proxy log a connection error for every request.
+  server: { proxy: { '/api': { target: `http://${API_HOST}:${API_PORT}`, changeOrigin: false, bypass: async () => ((await apiIsUp()) ? undefined : false) } } },
   test: { environment: 'node', include: ['tests/**/*.test.ts'] },
 });
