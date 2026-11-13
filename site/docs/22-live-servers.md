@@ -129,7 +129,7 @@ The Emberwall server then:
 
 Press **Confirm: keep the new rules**. Emberwall opens a **new** SSH connection and runs the confirm script on the target.
 
-- If the connection succeeds before the timer ends, the push is confirmed: "Confirmed. The new rules are live."
+- If the connection succeeds before the timer ends, the push is confirmed: "Confirmed. The new rules are live." The confirmation and the timer are decided exactly once on the target, so a confirmation that arrives while the timer is already rolling back is reported as too late, never as confirmed.
 - If the new rules block Emberwall, the new connection fails, the push cannot be confirmed, and the target restores its previous rules when the timer ends.
 - If you do nothing, the target rolls back on its own: "Not confirmed in time. The server restored its previous rules on its own." Read the server again to verify.
 

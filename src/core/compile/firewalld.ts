@@ -223,6 +223,11 @@ export function compileFirewalld(p: Project, target: Target): CompileResult {
   const order = new Map(p.rules.map((r, i) => [r.id, i]));
 
   const zones = fwZones(p, rules);
+  for (const z of zones) {
+    for (const i of z.ifaces.filter((x) => x.endsWith('+'))) {
+      d.unsupported(`Interface "${i}" ends in "+", a wildcard. Whether firewalld binds a zone to a wildcard name depends on its version and backend, and Emberwall has not verified it: if zone ${z.name} does not take effect, list the interfaces one by one.`);
+    }
+  }
   const zoneOf = (iface?: string) => (iface ? zones.find((z) => z.ifaces.includes(iface))?.name ?? ANY : ANY);
   const inKey = (rr: ResolvedRule) => zoneOf(rr.rule.inIface);
   const outKey = (rr: ResolvedRule) => zoneOf(rr.rule.outIface);

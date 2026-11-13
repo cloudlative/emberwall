@@ -46,24 +46,31 @@ export function safeApplyScript(plan: ApplyPlan): OutFile {
     plan.check.forEach((c) => o.push(c));
   }
   o.blank();
+  // Keeping and rolling back are decided exactly once: whoever creates $BACKUP/decided first
+  // (mkdir is atomic) wins, so a late "yes" can never claim the rules were kept after the timer
+  // has already restored the old ones.
+  o.push('decide() { mkdir "$BACKUP/decided" 2>/dev/null; }');
+  o.blank();
   o.push('echo "==> Applying"');
-  o.push('( trap "" HUP; sleep "$TIMEOUT"; rollback ) >/dev/null 2>&1 &');
+  o.push('( trap "" HUP; sleep "$TIMEOUT"; if decide; then rollback; fi ) >/dev/null 2>&1 &');
   o.push('WATCHDOG=$!');
   o.push('if ! (');
   plan.apply.forEach((c) => o.push(`  ${c}`));
   o.push('); then');
-  o.push('  kill "$WATCHDOG" 2>/dev/null || true');
-  o.push('  rollback');
+  o.push('  if decide; then kill "$WATCHDOG" 2>/dev/null || true; rollback; fi');
   o.push('  exit 1');
   o.push('fi');
   o.blank();
   o.push('printf \'Applied. Open a NEW session to check access, then type "yes" within %s seconds to keep: \' "$TIMEOUT"');
   o.push('read -r answer || answer=""');
+  o.push('if ! decide; then');
+  o.push('  echo "==> Too late: the timer ran out and the previous rules were restored. Nothing was kept."');
+  o.push('  exit 1');
+  o.push('fi');
+  o.push('kill "$WATCHDOG" 2>/dev/null || true');
   o.push('if [ "$answer" = "yes" ]; then');
-  o.push('  kill "$WATCHDOG" 2>/dev/null || true');
   o.push('  echo "==> Kept. The backup stays in $BACKUP"');
   o.push('else');
-  o.push('  kill "$WATCHDOG" 2>/dev/null || true');
   o.push('  rollback');
   o.push('fi');
   if (plan.persist.length > 0) {

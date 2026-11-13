@@ -110,20 +110,23 @@ export function deployPlan(result: CompileResult, opts: DeployOptions): DeployPl
   for (const c of st.rollback) L.push(c);
   L.push('touch "$S/rolledback"');
   L.push('EMBERWALL_ROLLBACK');
+  // Keep or roll back is decided exactly once: the first to create $S/decided (mkdir is atomic)
+  // wins, so a confirmation that arrives while the timer is rolling back reports "rolledback".
   L.push(`cat > "$S/confirm.sh" <<'EMBERWALL_CONFIRM'`);
-  L.push(`if [ -e '${S}/rolledback' ]; then echo rolledback; else touch '${S}/confirmed' && echo confirmed; fi`);
+  L.push(`if mkdir '${S}/decided' 2>/dev/null; then touch '${S}/confirmed' && echo confirmed; elif [ -e '${S}/confirmed' ]; then echo confirmed; else echo rolledback; fi`);
   L.push('EMBERWALL_CONFIRM');
   L.push(`cat > "$S/status.sh" <<'EMBERWALL_STATUS'`);
-  L.push(`if [ -e '${S}/rolledback' ]; then echo rolledback; elif [ -e '${S}/confirmed' ]; then echo confirmed; else echo pending; fi`);
+  L.push(`if [ -e '${S}/rolledback' ]; then echo rolledback; elif [ -e '${S}/confirmed' ]; then echo confirmed; elif [ -d '${S}/decided' ]; then echo rollingback; else echo pending; fi`);
   L.push('EMBERWALL_STATUS');
   L.push(`step "Arming automatic rollback in ${timeout} seconds"`);
-  L.push(`( trap '' HUP; sleep ${timeout}; [ -e "$S/confirmed" ] || sh "$S/rollback.sh" > "$S/rollback.log" 2>&1 ) > /dev/null 2>&1 < /dev/null &`);
+  L.push(`( trap '' HUP; sleep ${timeout}; mkdir "$S/decided" 2>/dev/null && sh "$S/rollback.sh" > "$S/rollback.log" 2>&1 ) > /dev/null 2>&1 < /dev/null &`);
   L.push('step "Applying"');
   L.push('if ! (');
   L.push('  set -e');
   for (const c of st.apply) L.push(`  ${c}`);
   L.push('); then');
   L.push('  echo "!! apply failed; rolling back now" >&2');
+  L.push('  mkdir "$S/decided" 2>/dev/null');
   L.push('  sh "$S/rollback.sh" > "$S/rollback.log" 2>&1');
   L.push('  exit 1');
   L.push('fi');

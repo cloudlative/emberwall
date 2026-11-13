@@ -104,6 +104,9 @@ To use it:
 6. **Asks** you to type `yes`.
    - `yes`: the watchdog is stopped and the rules stay. The backup is kept in the `/tmp/emberwall-backup.*` directory.
    - Anything else: the script rolls back at once.
+   - An answer after the timeout: the watchdog has already restored the backup, so the script says "Too late", keeps nothing and exits with status 1.
+
+Keeping and rolling back are decided exactly once (by whichever of you and the watchdog gets there first), so the script never reports "Kept" for rules that were rolled back.
 
 ### The timeout
 
@@ -118,7 +121,7 @@ sudo env TIMEOUT=180 sh emberwall-apply.sh
 Because the watchdog ignores hang-ups, it keeps running when the new rules cut the SSH session that started the script. When the timeout runs out, it restores the backup on its own.
 
 > [!WARNING]
-> Type `yes` before the timeout ends. Once the watchdog has rolled back, a late `yes` does not bring the new rules back; run the script again.
+> Type `yes` before the timeout ends. Once the watchdog has rolled back, a late `yes` is refused with "Too late" and does not bring the new rules back; run the script again.
 
 ### Rollback
 

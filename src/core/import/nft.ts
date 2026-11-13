@@ -44,7 +44,8 @@ function parseRule(text: string, direction: Direction, ctx: Ctx): { rule: Rule; 
   while (rest && (guard += 1) < 60) {
     let m: RegExpExecArray | null;
     if ((m = eat(new RegExp(`^(iifname|iif|oifname|oif) ${VALUE}`)))) {
-      const name = list(m[2])[0];
+      // nft's prefix wildcard "eth*" is "eth+" in a project (the iptables spelling).
+      const name = list(m[2])[0].replace(/\*$/, '+');
       if (m[1].startsWith('i')) {
         iif = name;
         if (direction !== 'out') r.inIface = name;
@@ -184,7 +185,7 @@ export function importNft(text: string, onlyTable?: string): ImportReport {
     }
     if (chain.nat) {
       const name = /comment "([^"]*)"/.exec(line)?.[1];
-      const iface = /(?:iifname|oifname) "([^"]+)"/.exec(line)?.[1];
+      const iface = /(?:iifname|oifname) "([^"]+)"/.exec(line)?.[1]?.replace(/\*$/, '+');
       const src = /ip6? saddr (\S+)/.exec(line)?.[1];
       const dst = /ip6? daddr (\S+)/.exec(line)?.[1];
       const pm = /(tcp|udp) dport (\S+)/.exec(line);

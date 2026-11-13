@@ -72,6 +72,7 @@ fallback Emberwall emits without it, and the upstream commit that introduced it.
 | nftables | sets updated from rules | 0.9.7 | meter syntax; no auto-ban |
 | iptables | `iptables-restore --wait` | 1.6.2 | restore without lock wait |
 | iptables | `--random-fully` | 1.6.0 SNAT, 1.6.2 MASQUERADE | `--random` |
+| iptables | nf_tables backend (`iptables-nft`) | 1.8.0 | legacy xtables backend only |
 | ufw | `ufw route` | 0.34 | `before.rules` fragment |
 | ufw | rule comments | 0.35 | shell comments |
 | firewalld | rich-rule priorities | 0.7.0 | warning: firewalld orders rules itself |
@@ -145,9 +146,12 @@ For development, `npm run server:dev` runs the API and `npm run dev` proxies `/a
   HTTPS in front (a reverse proxy) and `EMBERWALL_HTTPS=1`.
 - Stored credentials are encrypted with AES-256-GCM. Anyone holding both the database file and the
   master key can decrypt them. Losing the master key means re-entering every credential.
-- Use a dedicated SSH user and key for Emberwall. It needs root, or passwordless `sudo` for the
-  firewall commands it runs (`nft`, `iptables-save`, `iptables-restore`, `ufw`, `firewall-cmd`,
-  and `sh` on the files under `/etc/emberwall` for a push).
+- Use a dedicated SSH user and key for Emberwall. It needs root or passwordless `sudo`. Reading a
+  server runs the read-only firewall commands (`nft list ruleset`, `iptables-save`,
+  `ip6tables-save`, `ufw status`, `firewall-cmd`) through `sudo -n`. A push also runs
+  `sudo -n sh -c '…'` to write the files under `/etc/emberwall/deploy-<id>/`, then `sudo -n sh`
+  on the uploaded script and on `/var/lib/emberwall/deploy-<id>/confirm.sh`. `sudo` rights for
+  `sh` amount to full root, so treat this account (and its key in Emberwall) as root on that server.
 - Host keys are pinned on first use: compare the fingerprint shown with the server's own before
   accepting it. A changed key blocks the connection.
 - A push replaces only what Emberwall manages. On nftables that is the `inet emberwall` table:
@@ -219,9 +223,10 @@ repository variable `SITE_URL`.
 ### The assistant and your data
 
 Everything in Emberwall runs in your browser. The one exception is the optional assistant: when you
-add your own Anthropic API key and press a button, your request and the project's rules, zones,
-groups and NAT settings go from your browser to the Anthropic API. The page shows exactly what is
-sent. The key stays in the tab unless you tick "remember". The assistant's API calls have been
+add your own Anthropic API key and press a button, your request and the project go from your
+browser to the Anthropic API: its name, default policies and options, zones, address and port
+groups, rules, NAT, attack protections, and for each blocklist its name, whether it is on, its
+number of entries and its download URL (not the entries). The page shows exactly what is sent. The key stays in the tab unless you tick "remember". The assistant's API calls have been
 type-checked against the official SDK and its output validation is unit-tested, but it has not been
 exercised against the live API in this repository's tests.
 

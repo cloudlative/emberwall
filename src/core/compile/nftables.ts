@@ -19,6 +19,12 @@ function q(s: string): string {
   return `"${s.replace(/["\\]/g, '').slice(0, 120)}"`;
 }
 
+/** An interface name for iifname/oifname. A trailing "+" (iptables' prefix wildcard, as used in
+ *  projects) becomes nftables' wildcard "*"; nft would otherwise look for an interface called "eth+". */
+function ifname(s: string): string {
+  return q(s.endsWith('+') ? `${s.slice(0, -1)}*` : s);
+}
+
 function setOf(items: string[]): string {
   return items.length === 1 ? items[0] : `{ ${items.join(', ')} }`;
 }
@@ -118,8 +124,8 @@ function ruleLines(rr: ResolvedRule, sets: SetRegistry, target: Target, d: Diags
     const ipk = fam === 'ipv6' ? 'ip6' : 'ip';
     for (const protos of variants) {
       const m: string[] = [];
-      if (r.inIface && r.direction !== 'out') m.push(`iifname ${q(r.inIface)}`);
-      if (r.outIface && r.direction !== 'in') m.push(`oifname ${q(r.outIface)}`);
+      if (r.inIface && r.direction !== 'out') m.push(`iifname ${ifname(r.inIface)}`);
+      if (r.outIface && r.direction !== 'in') m.push(`oifname ${ifname(r.outIface)}`);
       if (r.srcMac && r.direction !== 'out') m.push(`ether saddr ${r.srcMac.toLowerCase()}`);
       const proto = protos[0];
       let familyPinned = false;
@@ -215,7 +221,7 @@ function natStatement(n: NatRule, fam: Fam, inet: boolean, d: Diags, target: Tar
   const ipk = fam === 'ipv6' ? 'ip6' : 'ip';
   const m: string[] = [];
   let pinned = false;
-  if (n.iface) m.push(`${n.kind === 'dnat' ? 'iifname' : 'oifname'} ${q(n.iface)}`);
+  if (n.iface) m.push(`${n.kind === 'dnat' ? 'iifname' : 'oifname'} ${ifname(n.iface)}`);
   if (n.src) {
     m.push(`${ipk} saddr ${n.src}`);
     pinned = true;

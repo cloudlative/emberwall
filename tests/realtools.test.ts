@@ -25,6 +25,7 @@ edge.rules = [
   newRule({ name: "it's rejected", direction: 'out', action: 'reject', proto: 'tcpudp', ports: ['25', '587'], dst: ['192.0.2.0/24'] }),
   newRule({ name: 'many ports', proto: 'tcp', ports: Array.from({ length: 20 }, (_, i) => String(1000 + i * 3)) }),
   newRule({ name: 'fwd', direction: 'forward', proto: 'tcp', ports: ['443'], inIface: 'eth1', outIface: 'eth0', dst: ['10.1.0.0/16'] }),
+  newRule({ name: 'any wireguard', proto: 'udp', ports: ['51820'], inIface: 'wg+' }),
 ];
 edge.zones = [
   { id: 'lan', name: 'LAN', interfaces: ['eth1', 'eth2'], networks: ['192.168.0.0/16'], trust: 'trusted' },

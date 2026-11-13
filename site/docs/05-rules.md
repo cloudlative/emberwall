@@ -93,7 +93,14 @@ The time is the firewall host's kernel clock, which is UTC unless the host confi
 
 ### Interface names
 
-Interface names follow the Linux rules: up to 15 letters, digits, `_`, `.` or `-`, optionally followed by `+`. The name is written into the output as you enter it. In iptables syntax a trailing `+` matches every interface starting with the name (for example `wg+`), and the simulator treats it the same way; check the generated output if you use it with another tool.
+Interface names follow the Linux rules: up to 15 letters, digits, `_`, `.` or `-`, optionally followed by `+`. A trailing `+` is a wildcard: `wg+` matches every interface whose name starts with `wg`, in the simulator and in the output.
+
+| Target | How `wg+` is written |
+|---|---|
+| iptables, ufw | `wg+` (the iptables wildcard; ufw passes it through) |
+| nftables | `"wg*"` (nftables' own wildcard). Importing an nftables ruleset turns `"wg*"` back into `wg+`. |
+| firewalld | `wg+`, with a warning: whether firewalld binds a zone to a wildcard name depends on its version and backend and has not been verified. List the interfaces one by one if the zone does not take effect. |
+| pf | A macro you set to an interface group; pf has no prefix wildcards. |
 
 ## Logging
 
