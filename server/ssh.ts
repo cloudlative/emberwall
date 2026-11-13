@@ -76,6 +76,10 @@ export function connect(t: SshTarget, timeoutMs = 15000): Promise<Session> {
         }),
       );
     });
+    // Send each SSH packet at once. Without ssh2's optional native crypto (it does not build on
+    // every Node release) a packet goes out in several small writes, and TCP's default batching
+    // then holds each one back for about 40 ms, which adds up over a probe's many commands.
+    client.on('connect', () => client.setNoDelay(true));
     client.on('error', (err) => {
       done(() => {
         if (hostKeyProblem) reject(hostKeyProblem);

@@ -188,7 +188,7 @@ sent. The key stays in the tab unless you tick "remember". The assistant's API c
 type-checked against the official SDK and its output validation is unit-tested, but it has not been
 exercised against the live API in this repository's tests.
 
-Requires Node 18+ for the app and CLI; server mode needs Node 22.13+ (it uses Node's built-in SQLite). The production build is a static site (`dist/`) that can be hosted anywhere.
+Developed and tested on Node 26 (the current LTS; `.nvmrc` pins it). Node 22.13 or newer is required: the build tools need it, and server mode uses Node's built-in SQLite. The production build is a static site (`dist/`) that can be hosted anywhere.
 
 ## How the output was checked
 

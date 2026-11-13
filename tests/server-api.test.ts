@@ -32,6 +32,7 @@ const commandsSeen: string[] = [];
 function startSsh(key: string): Promise<{ port: number; close: () => void }> {
   return new Promise((resolve) => {
     const server = new SshServer({ hostKeys: [key] }, (client) => {
+      (client as unknown as { setNoDelay(on: boolean): void }).setNoDelay(true); // present at run time, missing from the type definitions
       client.on('authentication', (ctx) => {
         if (ctx.username === 'ops' && ctx.method === 'password' && ctx.password === 'correct horse') return ctx.accept();
         if (ctx.username === 'ops' && ctx.method === 'publickey') return ctx.accept();
