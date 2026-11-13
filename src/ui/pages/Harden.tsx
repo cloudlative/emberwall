@@ -1,6 +1,7 @@
 import { Ban, Check, Minus, Plus, Printer, ShieldCheck, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { assess, PROFILES } from '../../core/compliance';
+import { COUNTRY_SOURCE, countryLists } from '../../core/geo';
 import { uid, type Blocklist } from '../../core/model';
 import { parseCidr } from '../../core/net';
 import { HARDENING, RECOMMENDED_HARDENING } from '../../core/sysctl';
@@ -12,7 +13,7 @@ export function BlocklistsPage() {
   const lists = useStore((s) => s.project.blocklists);
   const update = useStore((s) => s.update);
   const set = (id: string, patch: Partial<Blocklist>) => update((p) => ({ ...p, blocklists: p.blocklists.map((b) => (b.id === id ? { ...b, ...patch } : b)) }));
-  const add = (b: Partial<Blocklist>) => update((p) => ({ ...p, blocklists: [...p.blocklists, { id: uid('bl'), name: 'New blocklist', enabled: true, entries: [], ...b }] }));
+  const add = (...bs: Partial<Blocklist>[]) => update((p) => ({ ...p, blocklists: [...p.blocklists, ...bs.map((b) => ({ id: uid('bl'), name: 'New blocklist', enabled: true, entries: [], ...b }))] }));
   const [cc, setCc] = useState('');
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -23,10 +24,10 @@ export function BlocklistsPage() {
         <div className="flex flex-col gap-4 pr-1 xl:min-h-0 xl:overflow-y-auto">
           <section className="glass flex-none px-4 py-3.5">
             <div className="mb-1 text-[13px] font-semibold">Block a country</div>
-            <p className="mb-2.5 text-[12px] leading-snug text-mute">Adds a downloaded list for a two-letter country code. The address data comes from a third-party site (ipdeny.com) that the server fetches itself; Emberwall does not bundle or check it, so review the URL before you rely on it.</p>
+            <p className="mb-2.5 text-[12px] leading-snug text-mute">Adds the IPv4 and IPv6 lists for a two-letter country code, downloaded over HTTPS from <a className="underline" href={COUNTRY_SOURCE} target="_blank" rel="noreferrer">ipverse/country-ip-blocks</a> (built daily from the regional internet registries' data). The server fetches them itself; Emberwall does not bundle or check them, so review the URLs before you rely on them.</p>
             <div className="flex flex-wrap items-center gap-2">
               <input aria-label="Country code" className="field !w-24 font-mono uppercase" maxLength={2} placeholder="e.g. KP" value={cc} onChange={(e) => setCc(e.target.value.replace(/[^a-zA-Z]/g, ''))} />
-              <button className="btn" disabled={cc.length !== 2} onClick={() => { add({ name: `Country ${cc.toUpperCase()}`, url: `https://www.ipdeny.com/ipblocks/data/aggregated/${cc.toLowerCase()}-aggregated.zone` }); setCc(''); }}><Plus size={14} /> Add country list</button>
+              <button className="btn" disabled={cc.length !== 2} onClick={() => { add(...countryLists(cc)); setCc(''); }}><Plus size={14} /> Add country lists</button>
             </div>
           </section>
           {lists.length === 0 ? (

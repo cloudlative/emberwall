@@ -50,14 +50,20 @@ Each blocklist has an **Enabled** switch. An enabled list with no valid entries 
 
 ### Block a country
 
-Under **Block a country**, enter a two-letter country code (for example `KP`) and press **Add country list**. Emberwall adds a blocklist named "Country KP" with a download URL of the form:
+Under **Block a country**, enter a two-letter country code (for example `KP`) and press **Add country lists**. Emberwall adds two blocklists, "Country KP (IPv4)" and "Country KP (IPv6)", so the block also covers IPv6. Their download URLs have the form:
 
 ```text
-https://www.ipdeny.com/ipblocks/data/aggregated/kp-aggregated.zone
+https://raw.githubusercontent.com/ipverse/country-ip-blocks/master/country/kp/ipv4-aggregated.txt
+https://raw.githubusercontent.com/ipverse/country-ip-blocks/master/country/kp/ipv6-aggregated.txt
 ```
 
+The data is [ipverse/country-ip-blocks](https://github.com/ipverse/country-ip-blocks): built daily from the regional internet registries' delegation files, public domain, and served over HTTPS. Lines starting with `#` are comments; the updater keeps only lines that begin with an address.
+
 > [!WARNING]
-> Country data comes from a third-party site (ipdeny.com) that your server fetches itself. Emberwall does not bundle or check it. Review the URL before you rely on it.
+> Country data comes from a third-party source that your server fetches itself. Emberwall does not bundle or check it. Review the URLs before you rely on them, and use HTTPS URLs only: a list fetched over plain HTTP can be altered on the way, for example to block everyone.
+
+> [!NOTE]
+> Earlier versions used ipdeny.com, which now answers only over plain HTTP. Projects that still point at an ipdeny country list are switched to the matching ipverse IPv4 list when they are opened. Add the country again to get its IPv6 list too.
 
 ### How blocklists are built
 

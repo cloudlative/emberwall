@@ -1,5 +1,6 @@
 // Emberwall firewall intermediate representation (IR).
 // The UI, simulator, linter and every compiler work from this one model.
+import { migrateCountryUrl } from './geo';
 
 export type Direction = 'in' | 'out' | 'forward';
 export type Action = 'accept' | 'drop' | 'reject';
@@ -278,7 +279,7 @@ export function coerceProject(raw: unknown): Project {
       name: String(b.name ?? 'blocklist'),
       enabled: b.enabled !== false,
       entries: arr(b.entries),
-      url: typeof b.url === 'string' && b.url ? b.url : undefined,
+      url: typeof b.url === 'string' && b.url ? migrateCountryUrl(b.url) : undefined,
       outbound: !!b.outbound || undefined,
     })),
     hardening: arr(r.hardening),
