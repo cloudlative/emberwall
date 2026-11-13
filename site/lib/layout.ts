@@ -1,4 +1,8 @@
 // Page shell shared by every page of the website: head, header, footer, icons.
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import * as Lucide from 'lucide-react';
@@ -35,9 +39,20 @@ export interface PageMeta {
 /** Prefix that leads from a page back to the site root. */
 export const rootOf = (out: string) => '../'.repeat(out.split('/').length - 1) || './';
 
+/** "?v=<content hash>" for a file under site/, so a deploy reaches visitors past browser and CDN caches. */
+const versions = new Map<string, string>();
+function versioned(p: string): string {
+  if (!versions.has(p)) {
+    const file = join(dirname(fileURLToPath(import.meta.url)), '..', p);
+    versions.set(p, existsSync(file) ? `?v=${createHash('sha256').update(readFileSync(file)).digest('hex').slice(0, 10)}` : '');
+  }
+  return p + versions.get(p);
+}
+
 export function page(meta: PageMeta, body: string): string {
   const root = meta.absoluteBase ? new URL(SITE_URL).pathname : rootOf(meta.out);
   const r = (p: string) => root + p;
+  const asset = (p: string) => root + versioned(p);
   const canonical = SITE_URL + meta.out.replace(/index\.html$/, '');
   const fullTitle = meta.nav === 'home' ? meta.title : `${meta.title} · Emberwall`;
   const navLink = (id: string, href: string, label: string) => `<a href="${r(href)}"${meta.nav === id ? ' aria-current="page"' : ''}>${label}</a>`;
@@ -60,13 +75,13 @@ export function page(meta: PageMeta, body: string): string {
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="${r('favicon.svg')}" type="image/svg+xml">
 <link rel="preload" href="${r('assets/fonts/inter.woff2')}" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="${r('assets/css/site.css')}">
+<link rel="stylesheet" href="${asset('assets/css/site.css')}">
 <script>try{var t=localStorage.getItem('ew-site-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
-<body class="${meta.bodyClass ?? ''}">
+<body id="top" class="${meta.bodyClass ?? ''}">
 <a class="skip" href="#main">Skip to content</a>
 <div class="noise" aria-hidden="true"></div>
-<header class="site-header" id="top">
+<header class="site-header">
   <div class="header-inner">
     <a class="brand" href="${r('')}" aria-label="Emberwall home">${LOGO}<span>Emberwall</span></a>
     <nav class="main-nav" aria-label="Main">
@@ -94,9 +109,9 @@ ${footer(r)}
     <p class="search-empty" hidden>No matches. Try fewer or different words.</p>
   </div>
 </div>
-<div class="lightbox" hidden><button class="icon-btn lightbox-close" type="button" aria-label="Close">${icon('X', 20)}</button><img alt=""><p class="lightbox-caption"></p></div>
-<script src="${r('assets/js/site.js')}" defer></script>
-${(meta.scripts ?? []).map((s) => `<script src="${r(`assets/js/${s}`)}" defer></script>`).join('\n')}
+<div class="lightbox" hidden><button class="icon-btn lightbox-close" type="button" aria-label="Close">${icon('X', 20)}</button><button class="icon-btn lightbox-nav prev" type="button" aria-label="Previous image" hidden>${icon('ChevronLeft', 22)}</button><button class="icon-btn lightbox-nav next" type="button" aria-label="Next image" hidden>${icon('ChevronRight', 22)}</button><img alt=""><p class="lightbox-caption"></p></div>
+<script src="${asset('assets/js/site.js')}" defer></script>
+${(meta.scripts ?? []).map((s) => `<script src="${asset(`assets/js/${s}`)}" defer></script>`).join('\n')}
 </body>
 </html>
 `;
@@ -116,6 +131,6 @@ function footer(r: (p: string) => string): string {
     ${col('Learn', [['Quick start', r('docs/quick-start/')], ['Targets and versions', r('docs/targets-and-versions/')], ['Server mode', r('docs/server-mode/')], ['Command line', r('docs/cli/')]])}
     ${col('Project', [['GitHub', REPO_URL], ['Releases', `${REPO_URL}/releases`], ['Report an issue', `${REPO_URL}/issues`], ['License (MIT)', `${REPO_URL}/blob/main/LICENSE`]])}
   </div>
-  <div class="footer-base"><span>Emberwall · MIT licensed</span><a href="#top">Back to top ${icon('ArrowUp', 14)}</a></div>
+  <div class="footer-base"><span>Emberwall · MIT licensed</span><a href="#top" class="to-top">Back to top ${icon('ArrowUp', 14)}</a></div>
 </footer>`;
 }

@@ -316,25 +316,171 @@
   });
 
   // ---------- lightbox ----------
+  // ---------- back to top ----------
+  // Handled here so it works on every page (the 404 page resolves links against the site root)
+  // and leaves no "#top" in the address bar.
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a.to-top');
+    if (!a) return;
+    e.preventDefault();
+    window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' });
+    if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+    var skip = $('.site-header a, .site-header button');
+    if (skip) skip.focus({ preventScroll: true });
+  });
+
+  // Images in the same [data-tour] form a set that the arrows page through.
   var box = $('.lightbox');
+  var lightbox = null;
   if (box) {
     var img = $('img', box);
     var cap = $('.lightbox-caption', box);
+    var prevBtn = $('.lightbox-nav.prev', box);
+    var nextBtn = $('.lightbox-nav.next', box);
     var last = null;
-    document.addEventListener('click', function (e) {
-      var z = e.target.closest && e.target.closest('.zoom');
-      if (!z) return;
-      last = z;
+    var set = [];
+    var at = 0;
+    var show = function (i) {
+      at = (i + set.length) % set.length;
+      var z = set[at];
       img.src = z.getAttribute('data-full');
       img.alt = z.querySelector('img') ? z.querySelector('img').alt : '';
-      cap.textContent = img.alt;
-      box.hidden = false;
-      $('.lightbox-close', box).focus();
+      cap.textContent = (set.length > 1 ? (at + 1) + ' / ' + set.length + ' · ' : '') + img.alt;
+      if (prevBtn) prevBtn.hidden = nextBtn.hidden = set.length < 2;
+      if (lightbox && lightbox.onshow) lightbox.onshow(z);
+    };
+    lightbox = {
+      open: function (z) {
+        last = z;
+        var group = z.closest('[data-tour]');
+        set = group ? $$('.zoom', group) : [z];
+        box.hidden = false;
+        show(set.indexOf(z));
+        $('.lightbox-close', box).focus();
+      },
+      onshow: null,
+    };
+    document.addEventListener('click', function (e) {
+      var z = e.target.closest && e.target.closest('.zoom');
+      if (z) lightbox.open(z);
     });
     var close = function () { box.hidden = true; img.removeAttribute('src'); if (last) last.focus(); };
-    box.addEventListener('click', close);
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !box.hidden) close(); });
+    box.addEventListener('click', function (e) {
+      if (e.target.closest('.lightbox-nav')) { e.stopPropagation(); show(at + (e.target.closest('.next') ? 1 : -1)); return; }
+      close();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (box.hidden) return;
+      if (e.key === 'Escape') close();
+      else if (e.key === 'ArrowRight' && set.length > 1) show(at + 1);
+      else if (e.key === 'ArrowLeft' && set.length > 1) show(at - 1);
+    });
   }
+
+  // ---------- tour ----------
+  var tour = $('[data-tour]');
+  if (tour) (function () {
+    var data = JSON.parse($('.tour-data', tour).textContent);
+    var chapterTabs = $$('.tour-chapters button', tour);
+    var items = $$('.tour-stops li', tour);
+    var stopBtns = $$('.tour-stop', tour);
+    var screens = $$('.tour-screen', tour);
+    var playBtn = $('.tour-play', tour);
+    var pos = $('.tour-pos', tour);
+    var urlPage = $('.tour-url-page', tour);
+    var capTitle = $('.tour-caption b', tour);
+    var docLink = $('.tour-doc', tour);
+    var ms = 6500;
+    var current = 0;
+    var playing = !reduced;
+    var hover = false;
+    var timer = null;
+    var started = 0;
+    var left = ms;
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    var preload = function (i) { var im = screens[i] && screens[i].querySelector('img'); if (im) im.loading = 'eager'; };
+
+    function go(i, fromUser) {
+      current = (i + data.length) % data.length;
+      var s = data[current];
+      chapterTabs.forEach(function (t) { t.setAttribute('aria-selected', String(t.getAttribute('data-chapter') === s.c)); });
+      items.forEach(function (li) { li.hidden = li.getAttribute('data-chapter') !== s.c; });
+      stopBtns.forEach(function (b, j) { b.setAttribute('aria-current', String(j === current)); });
+      screens.forEach(function (sc, j) {
+        var on = j === current;
+        sc.classList.toggle('on', on);
+        if (on) { sc.removeAttribute('tabindex'); sc.removeAttribute('aria-hidden'); }
+        else { sc.setAttribute('tabindex', '-1'); sc.setAttribute('aria-hidden', 'true'); }
+      });
+      preload(current); preload(current + 1);
+      pos.textContent = pad(current + 1);
+      urlPage.textContent = s.t;
+      capTitle.textContent = s.t;
+      docLink.setAttribute('href', root + 'docs/' + s.d + '/');
+      // Restart the progress bar animation on the new stop.
+      var bar = stopBtns[current].querySelector('.tour-bar');
+      bar.style.display = 'none'; void bar.offsetWidth; bar.style.display = '';
+      if (fromUser) setPlaying(false);
+      else schedule(ms);
+    }
+    function schedule(d) {
+      clearTimeout(timer);
+      if (!playing || hover) return;
+      left = d; started = Date.now();
+      timer = setTimeout(function () { go(current + 1); }, d);
+    }
+    function setPlaying(p) {
+      playing = p;
+      playBtn.setAttribute('aria-pressed', String(p));
+      playBtn.setAttribute('aria-label', p ? 'Pause the tour' : 'Play the tour');
+      tour.classList.toggle('playing', p);
+      if (p) go(current); else clearTimeout(timer);
+    }
+    function pauseForHover(h) {
+      if (!playing) return;
+      hover = h;
+      tour.classList.toggle('paused', h);
+      if (h) { clearTimeout(timer); left = Math.max(400, left - (Date.now() - started)); }
+      else schedule(left);
+    }
+
+    chapterTabs.forEach(function (t) {
+      t.addEventListener('click', function () {
+        var c = t.getAttribute('data-chapter');
+        for (var j = 0; j < data.length; j++) if (data[j].c === c) { go(j, true); break; }
+      });
+    });
+    stopBtns.forEach(function (b, j) { b.addEventListener('click', function () { go(j, true); }); });
+    $('.tour-prev', tour).addEventListener('click', function () { go(current - 1, true); });
+    $('.tour-next', tour).addEventListener('click', function () { go(current + 1, true); });
+    playBtn.addEventListener('click', function () { setPlaying(!playing); });
+    var stage = $('.tour-stage', tour);
+    stage.addEventListener('mouseenter', function () { pauseForHover(true); });
+    stage.addEventListener('mouseleave', function () { pauseForHover(false); });
+    tour.addEventListener('keydown', function (e) {
+      if (e.target.closest('.tour-chapters')) {
+        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+        var k = chapterTabs.indexOf(e.target.closest('button')) + (e.key === 'ArrowRight' ? 1 : -1);
+        var t = chapterTabs[(k + chapterTabs.length) % chapterTabs.length];
+        t.focus(); t.click(); e.preventDefault();
+      } else if (e.target.closest('.tour-stops, .tour-stage') && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+        if (e.target.closest('.tour-stage') && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) return;
+        go(current + (e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : -1), true);
+        if (e.target.closest('.tour-stop')) stopBtns[current].focus();
+        e.preventDefault();
+      }
+    });
+    // Paging in the lightbox moves the tour along with it.
+    if (lightbox) lightbox.onshow = function (z) {
+      var j = screens.indexOf(z);
+      if (j >= 0 && j !== current) go(j, true);
+      else if (j >= 0) setPlaying(false);
+    };
+    document.addEventListener('visibilitychange', function () { if (document.hidden) clearTimeout(timer); else if (playing && !hover) schedule(ms); });
+
+    setPlaying(false);
+    if (!reduced) whenVisible(tour, function () { setPlaying(true); }, 0.35);
+  })();
 
   // ---------- search ----------
   var modal = $('.search-modal');

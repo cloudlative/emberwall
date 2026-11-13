@@ -262,7 +262,7 @@ export function home(d: HomeData): string {
 </section>`;
 
   // ---------- CLI ----------
-  const cliTabs = cli.map((c, i) => `<button type="button" role="tab" aria-selected="${i === 0}" data-term="${i}">${esc(c.cmd.split(' ').slice(0, 2).join(' '))}</button>`).join('');
+  const cliTabs = cli.map((c, i) => `<button type="button" role="tab" aria-selected="${i === 0}" data-term="${i}" title="${esc(c.cmd.split(' ').slice(0, 2).join(' '))}">${esc(c.cmd.split(' ')[1] ?? c.cmd)}</button>`).join('');
   const ci = `name: firewall
 on: [push, pull_request]
 jobs:
@@ -284,23 +284,70 @@ jobs:
       <pre class="code ci-code glass scroll"><code>${codeLines(ci, 'yaml')}</code></pre>
     </div>
     <div class="terminal reveal" data-term-sessions='${json(cli)}'>
-      <div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><div class="term-tabs" role="tablist" aria-label="Example commands">${cliTabs}</div><span></span></div>
+      <div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><div class="term-tabs" role="tablist" aria-label="Example commands">${cliTabs}</div></div>
       <pre class="term-body scroll" aria-live="polite"><code></code></pre>
     </div>
   </div>
 </section>`;
 
   // ---------- gallery ----------
-  const gallery: [string, string][] = [
-    ['build', 'Build: every file, with notes for the chosen version'], ['simulator', 'Packet simulator with a full trace'], ['audit', 'Audit with one-click fixes'], ['compliance', 'Compliance profiles with evidence'],
-    ['topology', 'Topology with allowed flows'], ['flow', 'Packet flow through the hooks'], ['versions', 'Version matrix per release'], ['targets', 'pf, Windows, cloud and Kubernetes output'],
-    ['nat', 'NAT and port forwarding'], ['zones', 'Zones: WAN, LAN, DMZ, VPN'], ['blocklists', 'Blocklists and geo-blocking'], ['hardening', 'Kernel hardening'],
-    ['logs', 'Log analyzer'], ['tests', 'Policy tests'], ['transfer', 'Import from a running firewall'], ['dashboard-light', 'And a light theme'],
+  // [shot, title, what it shows, docs page]
+  type Stop = [string, string, string, string];
+  const chapters: { id: string; icon: string; name: string; lead: string; stops: Stop[] }[] = [
+    { id: 'design', icon: 'PenTool', name: 'Design', lead: 'Describe what the host should allow.', stops: [
+      ['dashboard', 'Dashboard', 'The posture score, exposed services and what needs attention, on one screen.', 'workspace'],
+      ['rules', 'Rules', 'Ordered rules with sources, ports, rate limits, schedules and logging. Drag to reorder.', 'rules'],
+      ['zones', 'Zones', 'Name the sides of the firewall (WAN, LAN, DMZ, VPN) and write rules between them.', 'objects-and-zones'],
+      ['nat', 'NAT and port forwarding', 'Masquerade, source NAT and port forwards, including IPv6.', 'nat'],
+      ['blocklists', 'Blocklists and geo-blocking', 'Block lists of addresses and whole countries, with a scheduled updater.', 'protection'],
+    ] },
+    { id: 'verify', icon: 'FlaskConical', name: 'Verify', lead: 'Prove it does what you meant, before it runs.', stops: [
+      ['simulator', 'Packet simulator', 'Send a test packet and read every check it passes through, down to the rule that decides.', 'simulator'],
+      ['reach', 'Reachability', 'A matrix of who can reach what, worked out from the ruleset.', 'reachability-and-topology'],
+      ['tests', 'Policy tests', 'Assertions such as "the database is never public", checked on every change and in CI.', 'policy-tests'],
+      ['audit', 'Audit', 'Risky, broken and redundant rules, a 0-100 score, and one-click fixes.', 'audit-and-compliance'],
+      ['compliance', 'Compliance', 'CIS-style, PCI DSS-style and internet-server profiles, with evidence for each check.', 'audit-and-compliance'],
+    ] },
+    { id: 'ship', icon: 'Rocket', name: 'Ship', lead: 'Output for the exact tool and version you run.', stops: [
+      ['build', 'Build', 'Every generated file, with notes for the chosen distribution and tool version.', 'build-output'],
+      ['versions', 'Version matrix', 'Which features each release of nftables, iptables, ufw and firewalld supports, and the fallbacks used.', 'targets-and-versions'],
+      ['compare', 'Compare backends', 'The same policy in nftables, iptables, ufw and firewalld, side by side.', 'targets-and-versions'],
+      ['targets', 'More targets', 'pf, Windows Firewall, AWS, Azure and Google Cloud security groups, and Kubernetes NetworkPolicy.', 'more-targets'],
+    ] },
+    { id: 'operate', icon: 'ServerCog', name: 'Operate', lead: 'Keep real servers in line with the policy.', stops: [
+      ['fleet', 'Fleet', 'One policy for many hosts, with per-host overrides and a build for each.', 'fleet'],
+      ['live-audit', 'Live servers', 'Read the firewall running on a server over SSH, audit it, and see drift from the project.', 'live-servers'],
+      ['live-push', 'Guarded push', 'Push a build with a rollback timer that only a fresh reconnection can cancel.', 'live-servers'],
+      ['logs', 'Log analyzer', 'Paste kernel firewall logs to see top sources and ports, then block or allow in one click.', 'log-analyzer'],
+      ['transfer', 'Import and export', 'Bring in an existing iptables, nftables, ufw or firewalld config, or move a project as JSON.', 'import'],
+    ] },
   ];
+  const stops = chapters.flatMap((c) => c.stops.map((s) => ({ chapter: c.id, shot: s[0], title: s[1], text: s[2], doc: s[3] })));
   const gallerySection = `
 <section class="section gallery-section" id="gallery" aria-labelledby="gallery-title">
-  <div class="container"><header class="section-head reveal"><p class="eyebrow">${icon('Images', 15)} Tour</p><h2 id="gallery-title">Take the <em>grand</em> tour.</h2><p>Every screen below is the real app, captured from this release. Click to enlarge.</p></header></div>
-  <div class="filmstrip scroll" tabindex="0" aria-label="Screenshots">${gallery.map(([n, c]) => `<figure class="film"><button type="button" class="zoom" data-full="assets/shots/${n}.webp" aria-label="Enlarge: ${esc(c)}">${shot(n, c)}</button><figcaption>${esc(c)}</figcaption></figure>`).join('')}</div>
+  <div class="container">
+    <header class="section-head reveal"><p class="eyebrow">${icon('Images', 15)} Tour</p><h2 id="gallery-title">Take the <em>grand</em> tour.</h2><p>${stops.length} screens from the real app, captured from this release. Pick a chapter, or let it play.</p></header>
+    <div class="tour reveal" data-tour>
+      <div class="tour-chapters" role="tablist" aria-label="Tour chapters">${chapters.map((c, i) => `<button type="button" role="tab" aria-selected="${i === 0}" data-chapter="${c.id}">${icon(c.icon, 16)}<span>${c.name}</span><small>${c.stops.length}</small></button>`).join('')}</div>
+      <div class="tour-body">
+        <ol class="tour-stops">${stops.map((s, i) => `<li data-chapter="${s.chapter}"${chapters[0].id === s.chapter ? '' : ' hidden'}><button type="button" class="tour-stop" data-stop="${i}" aria-current="${i === 0}"><span class="tour-num">${String(i + 1).padStart(2, '0')}</span><span class="tour-text"><b>${esc(s.title)}</b><span>${esc(s.text)}</span></span><i class="tour-bar" aria-hidden="true"></i></button></li>`).join('')}</ol>
+        <div class="tour-stage">
+          <div class="tour-window">
+            <div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><span class="tour-url">${icon('Lock', 12)} <span>emberwall · <b class="tour-url-page">${esc(stops[0].title)}</b></span></span><span class="tour-count"><b class="tour-pos">01</b> / ${String(stops.length).padStart(2, '0')}</span></div>
+            <div class="tour-screens">${stops.map((s, i) => `<button type="button" class="zoom tour-screen${i === 0 ? ' on' : ''}" data-full="assets/shots/${s.shot}.webp" data-stop="${i}" aria-label="Enlarge: ${esc(s.title)}"${i === 0 ? '' : ' tabindex="-1" aria-hidden="true"'}>${i < 2 ? shot(s.shot, `${s.title}: ${s.text}`).replace(' loading="lazy"', '') : shot(s.shot, `${s.title}: ${s.text}`)}</button>`).join('')}</div>
+          </div>
+          <div class="tour-controls">
+            <button type="button" class="icon-btn tour-prev" aria-label="Previous screen">${icon('ChevronLeft', 18)}</button>
+            <button type="button" class="icon-btn tour-play" aria-label="Pause the tour" aria-pressed="true">${icon('Pause', 16)}${icon('Play', 16)}</button>
+            <button type="button" class="icon-btn tour-next" aria-label="Next screen">${icon('ChevronRight', 18)}</button>
+            <p class="tour-caption" aria-live="polite"><b>${esc(stops[0].title)}</b> <a class="tour-doc" href="docs/${stops[0].doc}/">Read the docs ${icon('ArrowRight', 13)}</a></p>
+            <a class="btn btn-glass btn-sm tour-open" href="app/">${icon('ExternalLink', 14)} Try it in the app</a>
+          </div>
+        </div>
+      </div>
+      <script type="application/json" class="tour-data">${JSON.stringify(stops.map((s) => ({ c: s.chapter, t: s.title, d: s.doc }))).replace(/</g, '\\u003c')}</script>
+    </div>
+  </div>
 </section>`;
 
   // ---------- privacy ----------
