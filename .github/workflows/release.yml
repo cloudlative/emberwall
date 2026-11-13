@@ -1,0 +1,131 @@
+# Release: standalone executables on every v* tag.
+#
+# Builds one self-contained executable per platform with Node's single executable applications
+# (scripts/build-bin.mjs, "npm run build:bin"), smoke-tests each one on its own native runner, and
+# publishes a GitHub Release on this repository with the binaries, SHA256SUMS and
+# THIRD_PARTY_NOTICES.txt.
+#
+# One-time setup: none beyond Actions being enabled. The release is created with the built-in
+# GITHUB_TOKEN (this workflow asks for contents: write). If the repository or organisation restricts
+# workflow permissions to read-only (Settings -> Actions -> General -> Workflow permissions), the
+# per-workflow "permissions:" block below still grants write for this workflow, unless an
+# organisation policy forbids it.
+#
+# To release: git tag v1.2.3 && git push origin v1.2.3
+# Manual run (Actions -> Release -> Run workflow): give a tag to publish a release for it (the tag is
+# created at the selected commit if missing); leave it empty to only build and test the binaries,
+# which are then kept as workflow artifacts.
+#
+# macOS binaries are signed ad hoc only (not notarized): Gatekeeper blocks them when downloaded with
+# a browser until the user allows them (or runs: xattr -d com.apple.quarantine emberwall-macos-*).
+# Windows binaries are unsigned.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v1.2.3). Empty = build only, no release.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, name: linux-x64 }
+          - { runner: ubuntu-24.04-arm, name: linux-arm64 }
+          - { runner: macos-15, name: macos-arm64 }
+          - { runner: macos-15-intel, name: macos-x64 }
+          - { runner: windows-2025, name: windows-x64, ext: .exe }
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      BIN: dist-bin/emberwall-${{ matrix.name }}${{ matrix.ext }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm run build:bin
+      - name: Smoke test
+        run: |
+          test -f "$BIN"
+          ls -l "$BIN"
+          expected="$(node -p "require('./package.json').version")"
+          # From an empty directory, so nothing in the checkout can be picked up.
+          mkdir -p "$RUNNER_TEMP/smoke" && cp "$BIN" "$RUNNER_TEMP/smoke/" && cd "$RUNNER_TEMP/smoke"
+          exe="./$(basename "$BIN")"
+          version="$("$exe" --version)"
+          echo "version: $version"
+          test "$version" = "$expected"
+          "$exe" targets | tee targets.txt
+          grep -q '^debian-12' targets.txt
+          "$exe" licenses > notices.txt
+          grep -q '^ssh2 ' notices.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emberwall-${{ matrix.name }}
+          path: |
+            ${{ env.BIN }}
+            dist-bin/THIRD_PARTY_NOTICES.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Collect files and checksums
+        run: |
+          mkdir release
+          find artifacts -type f -name 'emberwall-*' -exec cp {} release/ \;
+          cp artifacts/emberwall-linux-x64/THIRD_PARTY_NOTICES.txt release/
+          chmod +x release/emberwall-linux-* release/emberwall-macos-*
+          cd release && sha256sum emberwall-* THIRD_PARTY_NOTICES.txt > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release create "$TAG" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Emberwall $TAG" \
+            --generate-notes

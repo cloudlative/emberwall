@@ -21,6 +21,7 @@
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --external:ssh2 --outfile=dist-server/emberwall-server.mjs --banner:js=\"import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);\"",
     "server": "npm run build && npm run build:server && node dist-server/emberwall-server.mjs",
     "server:dev": "vite-node server/index.ts",
+    "build:bin": "npm run build && node scripts/build-bin.mjs",
     "check:layout": "vite build && node scripts/check-layout.cjs"
   },
   "dependencies": {
