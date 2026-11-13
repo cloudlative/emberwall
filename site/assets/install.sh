@@ -8,6 +8,7 @@
 #   EMBERWALL_VERSION      a release tag such as v1.0.0 (default: the latest release)
 #   EMBERWALL_INSTALL_DIR  where to put the binary (default: /usr/local/bin if writable, else ~/.local/bin)
 #   EMBERWALL_RELEASE_URL  base URL that holds the release files (for mirrors and testing)
+#   EMBERWALL_NO_COMPLETIONS=1  do not install tab completion for bash and fish
 set -eu
 
 REPO="cloudlative/emberwall"
@@ -80,4 +81,17 @@ case ":$PATH:" in
   *":$dir:"*) ;;
   *) say "Note: $dir is not on your PATH. Add it, for example: export PATH=\"$dir:\$PATH\"" ;;
 esac
+
+# Tab completion. bash (with bash-completion) and fish load these files on their own; zsh needs
+# one line in ~/.zshrc. Skip with EMBERWALL_NO_COMPLETIONS=1.
+if [ -z "${EMBERWALL_NO_COMPLETIONS:-}" ] && [ -n "${HOME:-}" ]; then
+  done_for=""
+  bash_dir="${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions"
+  if command -v bash >/dev/null 2>&1 && mkdir -p "$bash_dir" 2>/dev/null &&
+    "$dir/emberwall" completion bash > "$bash_dir/emberwall" 2>/dev/null; then done_for="bash"; fi
+  if command -v fish >/dev/null 2>&1 && mkdir -p "$HOME/.config/fish/completions" 2>/dev/null &&
+    "$dir/emberwall" completion fish > "$HOME/.config/fish/completions/emberwall.fish" 2>/dev/null; then done_for="${done_for:+$done_for, }fish"; fi
+  [ -n "$done_for" ] && say "Tab completion installed for $done_for (open a new shell)."
+  command -v zsh >/dev/null 2>&1 && say "For zsh tab completion, add to ~/.zshrc after compinit:  source <(emberwall completion zsh)"
+fi
 say "Next: emberwall --help   ·   docs: https://emberwall.cloudlative.com/docs/"

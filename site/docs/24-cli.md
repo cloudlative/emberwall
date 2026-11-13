@@ -16,6 +16,20 @@ To install it, see [Install](doc:install#the-emberwall-binary). From a source ch
 
 `emberwall --version` prints the version of the binary.
 
+## Shell completion
+
+Press Tab to complete commands, flags, every `--target` (`debian-12:nftables`, `nftables@1.1.6` and the rest), `--profile` names, project files (`.json`) and `--out` folders.
+
+The [install script](doc:install#the-emberwall-binary) sets it up for bash and fish. To set it up yourself, `emberwall completion <shell>` prints the script:
+
+| Shell | Set up once |
+| --- | --- |
+| bash | `emberwall completion bash > ~/.local/share/bash-completion/completions/emberwall` (needs the bash-completion package), or add `source <(emberwall completion bash)` to `~/.bashrc` |
+| zsh | add `source <(emberwall completion zsh)` to `~/.zshrc`, after `compinit` |
+| fish | `emberwall completion fish > ~/.config/fish/completions/emberwall.fish` |
+
+`emberwall completion` with no shell name uses your login shell (`$SHELL`). The lists are written into the script, so Tab never starts Emberwall itself; after upgrading, run the command again to pick up new targets.
+
 ## Exit status
 
 | Status | Meaning |

@@ -177,6 +177,8 @@ npm run build:cli                               # single-file bundle: dist-cli/e
 
 Project files are the JSON exported from **Import / export**.
 
+Tab completion for bash, zsh and fish: `emberwall completion bash|zsh|fish` prints the script (the install script sets up bash and fish for you).
+
 ### Binaries
 
 Each release has one self-contained executable per platform (Linux x64/arm64, macOS arm64/x64,

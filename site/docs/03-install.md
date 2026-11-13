@@ -52,7 +52,7 @@ Run the install script:
 
 {{install}}
 
-The script detects your OS and architecture, downloads the matching binary, verifies its checksum, and installs it to `/usr/local/bin` or `~/.local/bin`.
+The script detects your OS and architecture, downloads the matching binary, verifies its checksum, and installs it to `/usr/local/bin` or `~/.local/bin`. It also sets up [Tab completion](doc:cli#shell-completion) for bash and fish (skip with `EMBERWALL_NO_COMPLETIONS=1`), and prints the one line zsh needs.
 
 Check that it works:
 

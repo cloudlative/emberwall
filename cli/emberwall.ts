@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { compile, fileText } from '../src/core/compile';
 import { iacFiles } from '../src/core/compile/iac';
+import { completionScript, SHELLS, type Shell } from './completion';
 import { assess, PROFILES } from '../src/core/compliance';
 import { buildFleet, fleetFiles } from '../src/core/fleet';
 import { grade, lint, score } from '../src/core/lint';
@@ -24,6 +25,7 @@ Usage:
   emberwall serve        start server mode (web app + API; standalone binary only,
                          from a source checkout use "npm run server")
   emberwall licenses     third-party license notices (standalone binary)
+  emberwall completion [bash|zsh|fish]   print a shell completion script
   emberwall --version
 
 Targets:
@@ -34,6 +36,11 @@ Options:
   --out <dir>     write files there (default: print the main file)
   --iac           also write the Ansible, Terraform and cloud-init files
   --strict        exit 1 when the build has version fallbacks or unsupported features
+
+Shell completion:
+  bash   emberwall completion bash > ~/.local/share/bash-completion/completions/emberwall
+  zsh    emberwall completion zsh > ~/.zfunc/_emberwall   (with fpath=(~/.zfunc $fpath) before compinit)
+  fish   emberwall completion fish > ~/.config/fish/completions/emberwall.fish
 
 Exit status: 0 ok, 1 a check failed, 2 usage or input error.`;
 
@@ -101,6 +108,13 @@ export function main(argv: string[], out: (s: string) => void = console.log, err
       case 'serve':
       case 'licenses':
         throw new UsageError(`"${cmd}" is part of the standalone binary; from a source checkout use "npm run server" (see README)`);
+      case 'completion': {
+        // Without a name, use the login shell ($SHELL).
+        const shell = pos[0] ?? (process.env.SHELL ?? '').split('/').pop();
+        if (!SHELLS.includes(shell as Shell)) throw new UsageError(`completion needs a shell: ${SHELLS.join(', ')}${pos[0] ? ` (not "${pos[0]}")` : ''}`);
+        out(completionScript(shell as Shell).trimEnd());
+        return 0;
+      }
       case 'targets':
         for (const d of DISTROS) out(`${d.id.padEnd(14)} ${Object.entries(d.tools).map(([t, v]) => `${t}@${v}${t === d.defaultTool ? '*' : ''}`).join('  ')}`);
         out('\n(* = the distribution\'s default firewall manager)');
