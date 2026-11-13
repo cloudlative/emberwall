@@ -173,6 +173,32 @@ npm run build:cli                               # single-file bundle: dist-cli/e
 
 Project files are the JSON exported from **Import / export**.
 
+### Binaries
+
+Each release has one self-contained executable per platform (Linux x64/arm64, macOS arm64/x64,
+Windows x64): the CLI, server mode and the web app in a single file, no Node.js or checkout needed.
+
+```bash
+./emberwall-linux-x64 --version
+./emberwall-linux-x64 build project.json --target debian-12:nftables --out out/
+EMBERWALL_SECRET="$(head -c 48 /dev/urandom | base64)" ./emberwall-linux-x64 serve   # http://127.0.0.1:8787
+./emberwall-linux-x64 licenses     # third-party notices (also THIRD_PARTY_NOTICES.txt in the release)
+```
+
+`serve` takes the same environment variables as server mode above; the database goes to
+`./data/emberwall.db` in the current directory unless `EMBERWALL_DB` says otherwise. Check downloads
+against `SHA256SUMS`. The macOS binaries are signed ad hoc, not notarized: run
+`xattr -d com.apple.quarantine emberwall-macos-*` once after downloading with a browser.
+
+To build one for the machine you are on (Node 26; uses Node's
+[single executable applications](https://nodejs.org/api/single-executable-applications.html)):
+
+```bash
+npm run build:bin                  # dist-bin/emberwall-<os>-<arch>[.exe] + THIRD_PARTY_NOTICES.txt
+```
+
+`.github/workflows/release.yml` builds, smoke-tests and publishes all five on every `v*` tag.
+
 ### Hosting
 
 `.github/workflows/pages.yml` deploys the site to GitHub Pages on every push to `main`. Enable it
@@ -285,6 +311,7 @@ src/core/compile/    one compiler per backend, blocklists, automation export, sa
 src/core/compile/extra/  pf, Windows, cloud security groups, Kubernetes
 src/core/import/     iptables-save, nft, ufw and firewalld importers
 cli/                 command-line entry point
+bin/                 standalone executable entry point (CLI + serve), built by scripts/build-bin.mjs
 server/              optional server: API, SQLite storage, sign-in, SSH, guarded push
 src/api/             browser client for the server
 src/store/           app state, undo history, snapshots, share links

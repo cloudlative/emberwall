@@ -24,6 +24,7 @@
     "tests",
     "vite.config.ts",
     "cli",
-    "server"
+    "server",
+    "bin"
   ]
 }

@@ -10,6 +10,7 @@ import { grade, lint, score } from '../src/core/lint';
 import { coerceProject, type Project } from '../src/core/model';
 import { runTests } from '../src/core/reach';
 import { DISTROS, resolveTarget, TOOLS, VERSIONS, type Target, type Tool } from '../src/core/targets';
+import { version as pkgVersion } from '../package.json';
 
 const HELP = `emberwall - firewall builder CLI
 
@@ -20,6 +21,10 @@ Usage:
   emberwall test  <project.json>
   emberwall compliance <project.json> [--profile cis|pci|internet] [--min <0-100>]
   emberwall targets
+  emberwall serve        start server mode (web app + API; standalone binary only,
+                         from a source checkout use "npm run server")
+  emberwall licenses     third-party license notices (standalone binary)
+  emberwall --version
 
 Targets:
   <distro>:<tool>      e.g. debian-12:nftables, ubuntu-24.04:ufw
@@ -88,6 +93,14 @@ export function main(argv: string[], out: (s: string) => void = console.log, err
       case '-h':
         out(HELP);
         return cmd ? 0 : 2;
+      case '--version':
+      case '-v':
+      case 'version':
+        out(pkgVersion);
+        return 0;
+      case 'serve':
+      case 'licenses':
+        throw new UsageError(`"${cmd}" is part of the standalone binary; from a source checkout use "npm run server" (see README)`);
       case 'targets':
         for (const d of DISTROS) out(`${d.id.padEnd(14)} ${Object.entries(d.tools).map(([t, v]) => `${t}@${v}${t === d.defaultTool ? '*' : ''}`).join('  ')}`);
         out('\n(* = the distribution\'s default firewall manager)');
@@ -159,7 +172,7 @@ export function main(argv: string[], out: (s: string) => void = console.log, err
 }
 
 // Run only when executed as a script (directly, bundled, or through vite-node, which strips the
-// script name from argv), not when imported by tests.
-if (!process.env.VITEST && /(emberwall(\.ts|\.mjs)?|vite-node)$/.test(process.argv[1] ?? '')) {
+// script name from argv), not when imported by tests or by the standalone binary (bin/emberwall.ts).
+if (!process.env.VITEST && !(globalThis as { __emberwallBin?: boolean }).__emberwallBin && /(emberwall(\.ts|\.mjs)?|vite-node)$/.test(process.argv[1] ?? '')) {
   process.exit(main(process.argv.slice(2)));
 }

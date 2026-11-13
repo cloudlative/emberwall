@@ -2,7 +2,7 @@
 // except health, first-run setup and login.
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, join, normalize, posix, resolve } from 'node:path';
 import { compile } from '../src/core/compile';
 import { deployPlan } from '../src/core/compile/deployPlan';
 import { detect, NEEDS_ROOT, PROBE_COMMANDS, zoneXmlCommand, type ProbeKey, type ProbeOutput } from '../src/core/live';
@@ -16,10 +16,15 @@ import { logAction, ROLES, type Db, type Role } from './db';
 import { Vault } from './secrets';
 import { connect, HostKeyError, SshError, type Session, type SshTarget } from './ssh';
 
+/** Web app files held in memory (the single-file binary), keyed like "index.html", "assets/x.js". */
+export type StaticFiles = (path: string) => Uint8Array | undefined;
+
 export interface AppOptions {
   db: Db;
   vault: Vault;
   staticDir?: string;
+  /** Takes precedence over staticDir. */
+  staticFiles?: StaticFiles;
   /** Send the session cookie with the Secure flag (set when served over HTTPS). */
   secureCookies?: boolean;
   /** Trust X-Forwarded-For from a reverse proxy for login throttling. */
@@ -488,18 +493,38 @@ export function createApp(opts: AppOptions) {
     });
   }
 
-  function serveStatic(req: IncomingMessage, res: ServerResponse, path: string) {
+  function serveStatic(req: IncomingMessage, res: ServerResponse, rawPath: string) {
+    let path: string;
+    try {
+      path = decodeURIComponent(rawPath);
+    } catch {
+      path = '/';
+    }
+    const headers = (name: string) => ({ 'Content-Type': TYPES[extname(name)] ?? 'application/octet-stream', 'Cache-Control': /(^|\/)assets\//.test(name) ? 'public, max-age=31536000, immutable' : 'no-cache' });
+    if (opts.staticFiles) {
+      // Exact key lookup: nothing outside the embedded set can be named.
+      let name = posix.normalize(path).replace(/^\/+/, '');
+      let body = name ? opts.staticFiles(name) : undefined;
+      if (!body) body = opts.staticFiles((name = 'index.html'));
+      if (!body) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Emberwall API server. This build has no web app.');
+        return;
+      }
+      res.writeHead(200, { ...headers(name), 'Content-Length': body.byteLength });
+      res.end(req.method === 'HEAD' ? undefined : body);
+      return;
+    }
     const root = opts.staticDir ? resolve(opts.staticDir) : null;
     if (!root || !existsSync(root)) {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       res.end('Emberwall API server. The web app has not been built (run "npm run build").');
       return;
     }
-    let file = resolve(join(root, normalize(decodeURIComponent(path))));
+    let file = resolve(join(root, normalize(path)));
     if (!file.startsWith(root)) file = join(root, 'index.html');
     if (!existsSync(file) || statSync(file).isDirectory()) file = join(root, 'index.html');
-    const hashed = /\/assets\//.test(file);
-    res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream', 'Cache-Control': hashed ? 'public, max-age=31536000, immutable' : 'no-cache' });
+    res.writeHead(200, headers(file));
     if (req.method === 'HEAD') res.end();
     else createReadStream(file).pipe(res);
   }

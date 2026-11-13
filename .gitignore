@@ -5,3 +5,4 @@ dist
 dist-cli
 dist-server
 data
+dist-bin
