@@ -231,7 +231,7 @@ Developed and tested on Node 26 (the current LTS; `.nvmrc` pins it). Node 22.13 
   Nothing was tested against a remote production server.
 - Generated scripts are executed in tests with a deliberately hostile project (shell
   metacharacters in every name and field) to confirm nothing but firewall commands runs.
-- `npm run check:layout` checks every page at three sizes for overlapping cards and sideways scroll.
+- `npm run check:layout` checks every page at three sizes for overlapping cards and sideways scroll. It builds the app, serves it for the length of the check and drives a real browser, so run `npx playwright install chromium` once. To check an instance that is already running instead, use `node scripts/check-layout.cjs <url>`.
 - Importer tests compile each template, import the result and require that no access changes.
 - The generated Ansible playbooks pass `ansible-playbook --syntax-check`; the Terraform SSH-push
   file passes `terraform validate` and `terraform fmt -check` for every template and tool.

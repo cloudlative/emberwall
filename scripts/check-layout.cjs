@@ -1,18 +1,45 @@
 // Layout check: no two cards may overlap, and no page may scroll sideways.
-// Usage: node scripts/check-layout.cjs [baseUrl]   (needs `npm run preview` or the server running;
-// for a server-mode instance set EW_USER and EW_PASS)
+// Usage: node scripts/check-layout.cjs [baseUrl]
+// With no baseUrl it serves the built app (dist/) itself for the length of the check, so run
+// `npm run build` first; `npm run check:layout` does both. Pass a baseUrl to check something
+// already running, such as a server-mode instance (set EW_USER and EW_PASS to sign in).
+const fs = require('node:fs');
+const path = require('node:path');
 const { chromium } = require('playwright');
 
 const SIZES = [[1440, 900], [1100, 800], [820, 1000]];
 
 (async () => {
-  const base = process.argv[2] || 'http://localhost:4173/';
-  const browser = await chromium.launch();
+  let base = process.argv[2];
+  let preview = null;
+  if (!base) {
+    if (!fs.existsSync(path.join(process.cwd(), 'dist', 'index.html'))) {
+      console.error('Nothing to check: dist/ is missing. Run `npm run build` first, or pass the URL of a running instance.');
+      process.exit(1);
+    }
+    const vite = await import('vite'); // ESM-only, so it cannot be require()d here
+    preview = await vite.preview({ logLevel: 'silent', preview: { host: '127.0.0.1', port: 4173 } });
+    base = preview.resolvedUrls.local[0];
+  }
+  let browser;
+  try {
+    browser = await chromium.launch();
+  } catch (err) {
+    if (preview) await preview.close();
+    console.error(`Could not start the browser. Run \`npx playwright install chromium\` once.\n${err.message.split('\n')[0]}`);
+    process.exit(1);
+  }
   const ctx = await browser.newContext();
   await ctx.addInitScript(() => { try { localStorage.setItem('emberwall-welcome-seen', '1'); } catch {} });
   const page = await ctx.newPage();
   const problems = [];
-  await page.goto(base);
+  try {
+    await page.goto(base);
+  } catch (err) {
+    await browser.close();
+    console.error(`Could not open ${base}. Is it running?\n${err.message.split('\n')[0]}`);
+    process.exit(1);
+  }
   // Server mode: sign in with EW_USER / EW_PASS when the login screen is shown.
   await page.waitForSelector('nav, form');
   if (!(await page.locator('nav').count())) {
@@ -57,6 +84,7 @@ const SIZES = [[1440, 900], [1100, 800], [820, 1000]];
     }
   }
   await browser.close();
+  if (preview) await preview.close();
   if (problems.length) {
     console.log(problems.join('\n'));
     console.log(`\n${problems.length} layout problem(s)`);
