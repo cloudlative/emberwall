@@ -1,0 +1,34 @@
+<!doctype html>
+<!-- Source of assets/og.png (the social preview), rendered by site/capture.cjs at 1200x630. -->
+<html><head><meta charset="utf-8">
+<style>
+@font-face { font-family: Inter; src: url('../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2'); font-weight: 100 900; }
+@font-face { font-family: 'Instrument Serif'; src: url('../node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2'); font-style: italic; }
+@font-face { font-family: 'JetBrains Mono'; src: url('../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2'); font-weight: 100 800; }
+html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; background: #05060b; font-family: Inter, sans-serif; color: #eef1f8; }
+.glow { position: absolute; border-radius: 50%; filter: blur(80px); }
+.g1 { width: 700px; height: 520px; left: 560px; top: -120px; background: rgba(255, 107, 53, 0.45); }
+.g2 { width: 520px; height: 420px; left: 820px; top: 260px; background: rgba(139, 92, 246, 0.35); }
+.g3 { width: 420px; height: 320px; left: -120px; top: 380px; background: rgba(56, 189, 248, 0.14); }
+.copy { position: absolute; left: 72px; top: 70px; width: 600px; }
+.brand { display: flex; align-items: center; gap: 14px; font-weight: 700; font-size: 30px; letter-spacing: -0.02em; }
+.brand svg { width: 46px; height: 46px; filter: drop-shadow(0 6px 20px rgba(255, 107, 53, 0.6)); }
+h1 { font-size: 66px; line-height: 1.02; letter-spacing: -0.045em; margin: 56px 0 26px; font-weight: 700; }
+h1 em { font-family: 'Instrument Serif'; font-weight: 400; letter-spacing: -0.01em; }
+h1 span { background: linear-gradient(100deg, #ffd7b0, #ffa070 35%, #ff6b35 65%, #9b7bff); -webkit-background-clip: text; color: transparent; }
+.tools { display: flex; gap: 10px; flex-wrap: wrap; }
+.tools b { font: 500 17px 'JetBrains Mono'; color: #c9cfde; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.04); }
+.shot { position: absolute; left: 700px; top: 120px; width: 760px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: 0 40px 100px rgba(0, 0, 0, 0.8), 0 0 80px rgba(255, 107, 53, 0.35); transform: perspective(1400px) rotateY(-16deg) rotateX(6deg); transform-origin: left center; }
+.foot { position: absolute; left: 72px; bottom: 54px; font: 500 18px 'JetBrains Mono'; color: #8f98b0; }
+.foot i { color: #34d399; font-style: normal; }
+</style></head>
+<body>
+<div class="glow g1"></div><div class="glow g2"></div><div class="glow g3"></div>
+<img class="shot" src="assets/shots/dashboard.webp" alt="">
+<div class="copy">
+  <div class="brand"><svg viewBox="0 0 32 32"><defs><linearGradient id="e" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffd2a8"/><stop offset=".45" stop-color="#ff8f5c"/><stop offset="1" stop-color="#ec4f17"/></linearGradient></defs><path d="M16 3.5l10 3.9v7.8c0 6.1-4.2 10.7-10 12.8-5.8-2.1-10-6.7-10-12.8V7.4z" fill="url(#e)"/><path d="M16 10.6c2.2 2.7 3.9 4.2 3.9 6.6a3.9 3.9 0 01-7.8 0c0-1.3.6-2.2 1.4-3.1.2 1.1.9 1.7 1.6 1.7.3-1.9.2-3.5.9-5.2z" fill="#0b0d14"/></svg>Emberwall</div>
+  <h1>Design a firewall <em>once</em>.<br><span>Ship it everywhere.</span></h1>
+  <div class="tools"><b>nftables</b><b>iptables</b><b>ufw</b><b>firewalld</b></div>
+</div>
+<div class="foot"><i>●</i> version-aware · simulate · audit · safe apply</div>
+</body></html>

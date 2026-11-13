@@ -22,7 +22,10 @@
     "server": "npm run build && npm run build:server && node dist-server/emberwall-server.mjs",
     "server:dev": "vite-node server/index.ts",
     "build:bin": "npm run build && node scripts/build-bin.mjs",
-    "check:layout": "vite build && node scripts/check-layout.cjs"
+    "check:layout": "vite build && node scripts/check-layout.cjs",
+    "site:build": "vite-node site/build.ts",
+    "site:capture": "vite build && node site/capture.cjs",
+    "site:preview": "vite preview --outDir dist-site --port 4321 --strictPort"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
@@ -34,6 +37,9 @@
     "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource/instrument-serif": "^5.3.0",
     "@types/node": "^26.6.6",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
@@ -41,6 +47,7 @@
     "@vitejs/plugin-react": "^6.3.0",
     "autoprefixer": "^10.6.2",
     "esbuild": "^0.28.2",
+    "marked": "^18.1.0",
     "playwright": "^1.65.0",
     "postcss": "^8.5.32",
     "tailwindcss": "^3.4.19",

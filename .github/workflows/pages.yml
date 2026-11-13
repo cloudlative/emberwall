@@ -1,7 +1,8 @@
 name: Deploy to GitHub Pages
 
+# Publishes the website (site/, built into dist-site/) with the web app at /app/.
 # Needs Pages enabled once: repository Settings -> Pages -> Source: "GitHub Actions".
-# Until that is done this workflow fails at the deploy step and can be ignored.
+# For a custom domain, set the repository variable SITE_URL (e.g. https://emberwall.example.com/).
 on:
   push:
     branches: [main]
@@ -31,9 +32,12 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - run: npm run site:build
+        env:
+          EMBERWALL_SITE_URL: ${{ vars.SITE_URL || 'https://cloudlative.github.io/emberwall/' }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: dist-site
       - id: deployment
         uses: actions/deploy-pages@v4

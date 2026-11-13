@@ -199,11 +199,22 @@ npm run build:bin                  # dist-bin/emberwall-<os>-<arch>[.exe] + THIR
 
 `.github/workflows/release.yml` builds, smoke-tests and publishes all five on every `v*` tag.
 
-### Hosting
+### Website and hosting
 
-`.github/workflows/pages.yml` deploys the site to GitHub Pages on every push to `main`. Enable it
-once under repository **Settings → Pages → Source: GitHub Actions**; until then that workflow fails
-at its deploy step.
+The website (landing page, documentation, download page and install script) lives in `site/`:
+Markdown docs in `site/docs/`, pages and the generator in `site/*.ts`, styles and scripts in
+`site/assets/`. Code samples, version tables, simulator traces, audit results and CLI output on the
+site are computed from the engine at build time, so they always match the release.
+
+```bash
+npm run build && npm run site:build   # dist-site/, with the app copied to dist-site/app/
+npm run site:preview                  # http://localhost:4321
+npm run site:capture                  # re-take the screenshots in site/assets/shots/ after UI changes
+```
+
+`.github/workflows/pages.yml` publishes `dist-site/` to GitHub Pages on every push to `main`
+(enabled under **Settings → Pages → Source: GitHub Actions**). For a custom domain, set the
+repository variable `SITE_URL`.
 
 ### The assistant and your data
 
@@ -317,6 +328,7 @@ src/api/             browser client for the server
 src/store/           app state, undo history, snapshots, share links
 src/ui/              glass shell, pages and components
 tests/               unit tests and real-tool validation
+site/                website: docs (Markdown), landing and download pages, generator, assets
 ```
 
 ## License
