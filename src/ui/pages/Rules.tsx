@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowUp, Clock, Copy, FileText, Gauge, GripVertical, ListPlus, Pencil, Plus, Trash2, Users } from 'lucide-react';
 import { useState } from 'react';
 import { appliesTo } from '../../core/fleet';
-import { DIRECTION_LABEL, uid, type Direction, type Policy, type Project, type Rule } from '../../core/model';
+import { DIRECTION_LABEL, overrideCount, uid, type Direction, type Policy, type Project, type Rule } from '../../core/model';
 import { portLabel } from '../../core/net';
 import { useStore } from '../../store/useStore';
 import { OutputPanel } from '../components/OutputPanel';
@@ -180,6 +180,7 @@ export function RulesPage() {
         <div className="flex flex-col gap-4 pr-1 xl:min-h-0 xl:overflow-y-auto">
           <section className="glass flex-none px-4 py-3.5">
             <div className="mb-2.5 text-[13px] font-semibold">Default policies and baseline</div>
+            <HostOverrideNote />
             <div className="mb-3 grid gap-2 sm:grid-cols-3">
               {(['in', 'out', 'forward'] as Direction[]).map((d) => (
                 <div key={d} className="tile flex items-center justify-between gap-2 px-3 py-2">
@@ -222,5 +223,19 @@ export function RulesPage() {
         <OutputPanel className="h-[620px] xl:h-auto xl:min-h-0" />
       </div>
     </div>
+  );
+}
+
+/** With a fleet host in view, says that these controls edit the shared policy, not the host's overrides. */
+function HostOverrideNote() {
+  const host = useStore((s) => s.project.hosts.find((h) => h.id === s.activeHostId));
+  const setPage = useStore((s) => s.setPage);
+  const n = overrideCount(host?.overrides);
+  if (!host || n === 0) return null;
+  return (
+    <p className="mb-2.5 text-[12px] text-mute">
+      {host.name} overrides {n} setting{n === 1 ? '' : 's'}; these controls change the shared policy.{' '}
+      <button className="underline hover:text-ink" onClick={() => setPage('fleet')}>Edit its overrides</button>
+    </p>
   );
 }

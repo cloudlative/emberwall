@@ -1,5 +1,5 @@
 import type { Direction, Project } from '../model';
-import { cartesian, orAny, resolveAll, type ResolvedRule } from '../resolve';
+import { cartesian, orAny, resolveAll, slug, type ResolvedRule } from '../resolve';
 import type { Target } from '../targets';
 import { safeApplyScript } from './apply';
 import { activeLists, blocklistUpdater } from './blocklists';
@@ -155,6 +155,64 @@ interface Section {
   rich: Rich[];
 }
 
+/** A firewalld zone Emberwall creates for interfaces named in the project. */
+interface FwZone {
+  name: string;
+  ifaces: string[];
+  /** What it stands for, for comments and notes. */
+  from: string;
+}
+
+/** NAT settings attached to one firewalld zone. */
+interface ZoneNat {
+  masquerade: boolean;
+  forwardPorts: { port: string; proto: string; toPort?: string; toAddr?: string; ruleId: string }[];
+  rich: Rich[];
+}
+
+interface FwPolicy {
+  name: string;
+  ingress: string;
+  egress: string;
+  target: string;
+  priority?: number;
+  label: string;
+  sec: Section;
+}
+
+/** Stands for "no interface named": the rule applies whatever zone the packet is in. */
+const ANY = 'ANY';
+const NAME_MAX = 17; // firewalld limit for zone and policy names
+
+/**
+ * One firewalld zone per Emberwall zone that has interfaces, plus one per interface that a rule or
+ * NAT rule names outside any zone. Interfaces not listed stay in the "emberwall" default zone.
+ */
+function fwZones(p: Project, rules: ResolvedRule[]): FwZone[] {
+  const used = new Set<string>([ZONE]);
+  const unique = (base: string) => {
+    let name = base.slice(0, NAME_MAX).replace(/-+$/, '');
+    for (let i = 2; used.has(name); i += 1) name = `${base.slice(0, NAME_MAX - String(i).length - 1).replace(/-+$/, '')}-${i}`;
+    used.add(name);
+    return name;
+  };
+  const bound = new Set<string>();
+  const out: FwZone[] = [];
+  for (const z of p.zones) {
+    const ifaces = z.interfaces.filter((i) => !bound.has(i));
+    if (ifaces.length === 0) continue;
+    ifaces.forEach((i) => bound.add(i));
+    out.push({ name: unique(`ew-${slug(z.name, 14)}`), ifaces, from: `zone "${z.name}"` });
+  }
+  const loose = [...rules.flatMap((rr) => [rr.rule.inIface, rr.rule.outIface]), ...p.nat.filter((n) => n.enabled).map((n) => n.iface)];
+  for (const i of loose) {
+    if (!i || bound.has(i)) continue;
+    bound.add(i);
+    out.push({ name: unique(`ew-if-${slug(i, 11)}`), ifaces: [i], from: `interface ${i}` });
+  }
+  return out;
+}
+
 export function compileFirewalld(p: Project, target: Target): CompileResult {
   const d = new Diags();
   const rules = resolveAll(p);
@@ -162,29 +220,50 @@ export function compileFirewalld(p: Project, target: Target): CompileResult {
   const caps = target.caps;
   const opt = p.options;
   const byDir = (dir: Direction) => rules.filter((r) => r.rule.direction === dir);
+  const order = new Map(p.rules.map((r, i) => [r.id, i]));
 
-  /** Builds ports + rich rules for one direction, keeping rule order where the version allows. */
-  const build = (dir: Direction): Section => {
-    const list = byDir(dir);
+  const zones = fwZones(p, rules);
+  const zoneOf = (iface?: string) => (iface ? zones.find((z) => z.ifaces.includes(iface))?.name ?? ANY : ANY);
+  const inKey = (rr: ResolvedRule) => zoneOf(rr.rule.inIface);
+  const outKey = (rr: ResolvedRule) => zoneOf(rr.rule.outIface);
+  const allZones = [ZONE, ...zones.map((z) => z.name)];
+
+  /** Builds ports + rich rules for one zone or policy, keeping rule order where the version allows. */
+  const build = (list: ResolvedRule[], dir: Direction, allowPorts: boolean): Section => {
     const sec: Section = { ports: [], rich: [] };
     const ordered = new Set(list.map((r) => r.rule.action)).size > 1;
     if (ordered && !caps.richPriority) {
       d.fallback(`firewalld ${target.version} has no rich-rule priorities (0.7.0+): it evaluates log, then deny, then allow rules, so the order of your ${dir === 'in' ? 'inbound' : dir} rules is not preserved.`);
     }
-    list.forEach((rr, i) => {
-      if (rr.rule.inIface || rr.rule.outIface) {
-        d.unsupported(`"${rr.rule.name}": firewalld matches interfaces by binding them to a zone, not per rule; the interface match is left out.`, rr.rule.id);
-      }
-      if (!ordered && dir === 'in' && isSimplePort(rr)) {
-        for (const proto of rr.protos) for (const port of rr.ports) sec.ports.push({ port: dash(port), proto, ruleId: rr.rule.id });
+    // A zone with several interfaces gets one copy of each rule, not one per interface.
+    const seen = new Set<string>();
+    for (const rr of list) {
+      if (!ordered && allowPorts && isSimplePort(rr)) {
+        for (const proto of rr.protos) {
+          for (const port of rr.ports) {
+            const key = `${dash(port)}/${proto}`;
+            if (!seen.has(key)) sec.ports.push({ port: dash(port), proto, ruleId: rr.rule.id });
+            seen.add(key);
+          }
+        }
       } else {
-        sec.rich.push(...toRich(rr, ordered && caps.richPriority ? -1000 + i * 10 : undefined, d));
+        const prio = ordered && caps.richPriority ? -1000 + (order.get(rr.rule.id) ?? 0) * 10 : undefined;
+        for (const r of toRich(rr, prio, d)) {
+          const key = richText(r);
+          if (!seen.has(key)) sec.rich.push(r);
+          seen.add(key);
+        }
       }
-    });
+    }
     return sec;
   };
 
-  const zone = build('in');
+  // ---- inbound: the default zone, plus one zone per interface group ----
+  const inRules = byDir('in');
+  const sections = new Map<string, Section>();
+  sections.set(ZONE, build(inRules.filter((rr) => inKey(rr) === ANY), 'in', true));
+  for (const z of zones) sections.set(z.name, build(inRules.filter((rr) => inKey(rr) === ANY || inKey(rr) === z.name), 'in', true));
+
   const zonePre: Rich[] = [];
   if (!opt.ipv6) {
     zonePre.push({ family: 'ipv6', action: 'drop', priority: caps.richPriority ? -32000 : undefined });
@@ -205,26 +284,29 @@ export function compileFirewalld(p: Project, target: Target): CompileResult {
     }
     if (l.outbound) d.unsupported(`Blocklist "${l.name}": firewalld output only blocks traffic coming from the list, not going to it.`);
   }
-  zone.rich.unshift(...zonePre);
+  for (const sec of sections.values()) sec.rich.unshift(...zonePre);
 
-  // NAT
-  let masquerade = false;
-  const forwardPorts: { port: string; proto: string; toPort?: string; toAddr?: string; ruleId: string }[] = [];
+  // ---- NAT: attached to the zone of the interface it names, or to every zone ----
+  const nat = new Map<string, ZoneNat>(allZones.map((z) => [z, { masquerade: false, forwardPorts: [], rich: [] }]));
+  const natZones = (iface?: string) => (iface ? [zoneOf(iface) === ANY ? ZONE : zoneOf(iface)] : allZones);
   const directNat: { fam: Fam; spec: string; ruleId?: string }[] = [];
   for (const n of p.nat.filter((x) => x.enabled)) {
     const fam = natFamily(n);
     if (n.kind === 'masquerade') {
-      if (n.src) zone.rich.push({ ruleId: n.id, family: fam, src: n.src, element: { kind: 'masquerade' } });
-      else masquerade = true;
-      if (n.iface) d.note(`"${n.name}": masquerading is switched on for the ${ZONE} zone; bind ${n.iface} to that zone.`, n.id);
+      for (const z of natZones(n.iface)) {
+        if (n.src) nat.get(z)!.rich.push({ ruleId: n.id, family: fam, src: n.src, element: { kind: 'masquerade' } });
+        else nat.get(z)!.masquerade = true;
+      }
     } else if (n.kind === 'dnat') {
       if (!n.port || n.proto === 'any' || !n.toAddr) {
         d.unsupported(`"${n.name}": firewalld port forwards need a protocol, a port and a target address.`, n.id);
         continue;
       }
       const fp = { port: dash(n.port), proto: n.proto, toPort: n.toPort ? dash(n.toPort) : undefined, toAddr: n.toAddr };
-      if (n.src || n.dst) zone.rich.push({ ruleId: n.id, family: fam, src: n.src, dst: n.dst, element: { kind: 'forward-port', ...fp } });
-      else forwardPorts.push({ ...fp, ruleId: n.id });
+      for (const z of natZones(n.iface)) {
+        if (n.src || n.dst) nat.get(z)!.rich.push({ ruleId: n.id, family: fam, src: n.src, dst: n.dst, element: { kind: 'forward-port', ...fp } });
+        else nat.get(z)!.forwardPorts.push({ ...fp, ruleId: n.id });
+      }
     } else {
       d.fallback(`"${n.name}": firewalld has no SNAT setting; emitted through the direct interface (iptables syntax).`, n.id);
       const only = { ...p, nat: [n] };
@@ -232,13 +314,53 @@ export function compileFirewalld(p: Project, target: Target): CompileResult {
     }
   }
 
-  // Outbound / forward
+  // ---- outbound / forward: policy objects (0.9.0+) ----
   const needOut = byDir('out').length > 0 || p.policies.out === 'drop';
   const needFwd = byDir('forward').length > 0;
-  const outSec = needOut && caps.policies ? build('out') : null;
-  const fwdSec = needFwd && caps.policies ? build('forward') : null;
   if ((needOut || needFwd) && !caps.policies) {
     d.fallback(`firewalld ${target.version} has no policy objects (0.9.0+); outbound and forward rules use the direct interface (iptables syntax).`);
+  }
+  const policies: FwPolicy[] = [];
+  if (caps.policies) {
+    // A packet meets the most specific policy first (lowest priority number). Each specific policy
+    // carries every rule that applies to its zone pair, in order, and lets unmatched packets
+    // CONTINUE; the catch-all policy then only holds rules that name no interface.
+    const specific = (dir: 'out' | 'forward', ins: string[], outs: string[]) => {
+      const list = byDir(dir);
+      let n = 0;
+      for (const i of ins) {
+        for (const e of outs) {
+          if (i === ANY && e === ANY) continue;
+          const fits = (rr: ResolvedRule) => (dir === 'out' || inKey(rr) === ANY || inKey(rr) === i) && (outKey(rr) === ANY || outKey(rr) === e);
+          const keyed = (rr: ResolvedRule) => (dir === 'forward' && inKey(rr) !== ANY) || outKey(rr) !== ANY;
+          const mine = list.filter(fits);
+          if (!mine.some(keyed)) continue;
+          n += 1;
+          const ingress = dir === 'out' ? 'HOST' : i;
+          policies.push({
+            name: `ew-${dir === 'out' ? 'out' : 'fwd'}-${n}`,
+            ingress,
+            egress: e,
+            target: 'CONTINUE',
+            priority: i !== ANY && e !== ANY && dir === 'forward' ? -300 : -200,
+            label: `${dir === 'out' ? 'Outbound' : 'Forwarded'} traffic from ${ingress} to ${e}`,
+            sec: build(mine, dir, false),
+          });
+        }
+      }
+    };
+    const keysOf = (list: ResolvedRule[], key: (rr: ResolvedRule) => string) => [...new Set(list.map(key).filter((k) => k !== ANY)), ANY];
+    if (needOut) {
+      specific('out', [ANY], keysOf(byDir('out'), outKey));
+      const rest = byDir('out').filter((rr) => outKey(rr) === ANY);
+      policies.push({ name: 'ew-out', ingress: 'HOST', egress: 'ANY', target: p.policies.out === 'drop' ? 'DROP' : 'CONTINUE', label: 'Outbound traffic', sec: build(rest, 'out', false) });
+    }
+    if (needFwd) {
+      const fwd = byDir('forward');
+      specific('forward', keysOf(fwd, inKey), keysOf(fwd, outKey));
+      const rest = fwd.filter((rr) => inKey(rr) === ANY && outKey(rr) === ANY);
+      policies.push({ name: 'ew-fwd', ingress: 'ANY', egress: 'ANY', target: p.policies.forward === 'drop' ? 'DROP' : 'CONTINUE', label: 'Forwarded traffic', sec: build(rest, 'forward', false) });
+    }
   }
 
   // ---- shell script ----
@@ -250,30 +372,42 @@ export function compileFirewalld(p: Project, target: Target): CompileResult {
   o.push(`# Creates the "${ZONE}" zone and makes it the default zone. Run as root.`);
   o.push('set -eu');
   o.blank();
+  o.push('# Remove what an earlier run created (policies first: they refer to zones).');
+  if (caps.policies) o.push(`for x in $(${cmd} --get-policies 2>/dev/null); do case "$x" in ew-*) ${cmd} --delete-policy="$x" >/dev/null ;; esac; done`);
+  o.push(`for x in $(${cmd} --get-zones); do case "$x" in ew-*) ${cmd} --delete-zone="$x" >/dev/null ;; esac; done`);
   o.push(`${cmd} --delete-zone=${ZONE} >/dev/null 2>&1 || true`);
   ipsetCmds.forEach((c) => o.push(c));
-  o.push(`${cmd} --new-zone=${ZONE}`);
-  o.push(`${cmd} --zone=${ZONE} --set-target=${p.policies.in === 'drop' ? 'DROP' : 'ACCEPT'}`);
-  for (const pt of zone.ports) o.push(`${cmd} --zone=${ZONE} --add-port=${pt.port}/${pt.proto}`, pt.ruleId);
-  for (const r of zone.rich) o.push(`${cmd} --zone=${ZONE} --add-rich-rule=${shQuote(richText(r))}`, r.ruleId);
-  if (masquerade) o.push(`${cmd} --zone=${ZONE} --add-masquerade`);
-  for (const f of forwardPorts) {
-    o.push(`${cmd} --zone=${ZONE} --add-forward-port=port=${f.port}:proto=${f.proto}${f.toPort ? `:toport=${f.toPort}` : ''}:toaddr=${f.toAddr}`, f.ruleId);
+
+  const emitZone = (name: string, ifaces: string[], label: string) => {
+    const sec = sections.get(name)!;
+    const zn = nat.get(name)!;
+    o.blank();
+    o.push(`# ${label}`);
+    o.push(`${cmd} --new-zone=${name}`);
+    o.push(`${cmd} --zone=${name} --set-target=${p.policies.in === 'drop' ? 'DROP' : 'ACCEPT'}`);
+    // change-interface also takes the interface away from a zone it was bound to before.
+    for (const i of ifaces) o.push(`${cmd} --zone=${name} --change-interface=${i}`);
+    for (const pt of sec.ports) o.push(`${cmd} --zone=${name} --add-port=${pt.port}/${pt.proto}`, pt.ruleId);
+    for (const r of [...sec.rich, ...zn.rich]) o.push(`${cmd} --zone=${name} --add-rich-rule=${shQuote(richText(r))}`, r.ruleId);
+    if (zn.masquerade) o.push(`${cmd} --zone=${name} --add-masquerade`);
+    for (const f of zn.forwardPorts) {
+      o.push(`${cmd} --zone=${name} --add-forward-port=port=${f.port}:proto=${f.proto}${f.toPort ? `:toport=${f.toPort}` : ''}:toaddr=${f.toAddr}`, f.ruleId);
+    }
+  };
+  emitZone(ZONE, [], zones.length > 0 ? 'Default zone: interfaces not bound to another zone' : 'Default zone');
+  for (const z of zones) emitZone(z.name, z.ifaces, `${z.from}: ${z.ifaces.join(', ')}`);
+
+  for (const pol of policies) {
+    o.blank();
+    o.push(`# ${pol.label}`);
+    o.push(`${cmd} --new-policy=${pol.name}`);
+    o.push(`${cmd} --policy=${pol.name} --add-ingress-zone=${pol.ingress}`);
+    o.push(`${cmd} --policy=${pol.name} --add-egress-zone=${pol.egress}`);
+    if (pol.priority !== undefined) o.push(`${cmd} --policy=${pol.name} --set-priority=${pol.priority}`);
+    o.push(`${cmd} --policy=${pol.name} --set-target=${pol.target}`);
+    for (const r of pol.sec.rich) o.push(`${cmd} --policy=${pol.name} --add-rich-rule=${shQuote(richText(r))}`, r.ruleId);
   }
 
-  const policy = (name: string, ingress: string, egress: string, tgt: string, sec: Section) => {
-    o.blank();
-    o.push(`${cmd} --delete-policy=${name} >/dev/null 2>&1 || true`);
-    o.push(`${cmd} --new-policy=${name}`);
-    o.push(`${cmd} --policy=${name} --add-ingress-zone=${ingress}`);
-    o.push(`${cmd} --policy=${name} --add-egress-zone=${egress}`);
-    o.push(`${cmd} --policy=${name} --set-target=${tgt}`);
-    for (const r of sec.rich) o.push(`${cmd} --policy=${name} --add-rich-rule=${shQuote(richText(r))}`, r.ruleId);
-  };
-  if (outSec) policy('ew-out', 'HOST', 'ANY', p.policies.out === 'drop' ? 'DROP' : 'CONTINUE', outSec);
-  if (fwdSec) policy('ew-fwd', 'ANY', 'ANY', p.policies.forward === 'drop' ? 'DROP' : 'CONTINUE', fwdSec);
-
-  const direct: string[] = [];
   if (!caps.policies) {
     const fams: Fam[] = opt.ipv6 ? ['ipv4', 'ipv6'] : ['ipv4'];
     for (const fam of fams) {
@@ -284,9 +418,7 @@ export function compileFirewalld(p: Project, target: Target): CompileResult {
       for (const dir of ['out', 'forward'] as const) {
         byDir(dir).forEach((rr, i) => {
           for (const s of ruleSpecs(rr, fam)) {
-            const line = `${cmd} --direct --add-rule ${fam} filter ${dir === 'out' ? 'OUTPUT' : 'FORWARD'} ${i + 1} ${s.replace(/"/g, "'")}`;
-            o.push(line, rr.rule.id);
-            direct.push(line);
+            o.push(`${cmd} --direct --add-rule ${fam} filter ${dir === 'out' ? 'OUTPUT' : 'FORWARD'} ${i + 1} ${s.replace(/"/g, "'")}`, rr.rule.id);
           }
         });
       }
@@ -300,24 +432,41 @@ export function compileFirewalld(p: Project, target: Target): CompileResult {
   o.push('firewall-cmd --reload');
   o.push(`firewall-cmd --set-default-zone=${ZONE}`);
   o.push('firewall-cmd --list-all');
-  o.blank();
-  o.push('# Bind interfaces explicitly if you use more than one zone:');
-  o.push(`#   firewall-cmd --permanent --zone=${ZONE} --change-interface=eth0 && firewall-cmd --reload`);
+  for (const z of zones) o.push(`firewall-cmd --zone=${z.name} --list-all`);
 
-  // ---- zone XML ----
-  const x = new Out();
-  x.push('<?xml version="1.0" encoding="utf-8"?>');
-  x.push(`<!-- ${BANNER} - ${p.name}. Target: ${target.label} -->`);
-  x.push(`<zone target="${p.policies.in === 'drop' ? 'DROP' : 'ACCEPT'}">`);
-  x.push('  <short>Emberwall</short>');
-  x.push(`  <description>${(p.description || p.name).replace(/[<>&]/g, '')}</description>`);
-  for (const pt of zone.ports) x.push(`  <port port="${pt.port}" protocol="${pt.proto}"/>`, pt.ruleId);
-  if (masquerade) x.push('  <masquerade/>');
-  for (const f of forwardPorts) {
-    x.push(`  <forward-port port="${f.port}" protocol="${f.proto}"${f.toPort ? ` to-port="${f.toPort}"` : ''} to-addr="${f.toAddr}"/>`, f.ruleId);
+  if (zones.length > 0) {
+    d.note(
+      `Interfaces are bound to firewalld zones: ${zones.map((z) => `${z.ifaces.join(', ')} → ${z.name}`).join('; ')}. Other interfaces use the "${ZONE}" default zone. ` +
+        'If NetworkManager manages an interface, also set the zone on its connection (nmcli connection modify <name> connection.zone <zone>), or it may move the interface back.',
+    );
   }
-  for (const r of zone.rich) for (const l of richXml(r, '  ')) x.push(l, r.ruleId);
-  x.push('</zone>');
+
+  // ---- zone XML, one file per zone (inbound part) ----
+  const zoneXml = (name: string, ifaces: string[], short: string): OutFile => {
+    const sec = sections.get(name)!;
+    const zn = nat.get(name)!;
+    const x = new Out();
+    x.push('<?xml version="1.0" encoding="utf-8"?>');
+    x.push(`<!-- ${BANNER} - ${p.name}. Target: ${target.label} -->`);
+    x.push(`<zone target="${p.policies.in === 'drop' ? 'DROP' : 'ACCEPT'}">`);
+    x.push(`  <short>${short.replace(/[<>&"]/g, '')}</short>`);
+    x.push(`  <description>${(p.description || p.name).replace(/[<>&]/g, '')}</description>`);
+    for (const i of ifaces) x.push(`  <interface name="${i}"/>`);
+    for (const pt of sec.ports) x.push(`  <port port="${pt.port}" protocol="${pt.proto}"/>`, pt.ruleId);
+    if (zn.masquerade) x.push('  <masquerade/>');
+    for (const f of zn.forwardPorts) {
+      x.push(`  <forward-port port="${f.port}" protocol="${f.proto}"${f.toPort ? ` to-port="${f.toPort}"` : ''} to-addr="${f.toAddr}"/>`, f.ruleId);
+    }
+    for (const r of [...sec.rich, ...zn.rich]) for (const l of richXml(r, '  ')) x.push(l, r.ruleId);
+    x.push('</zone>');
+    return {
+      name: `${name}.xml`,
+      path: `/etc/firewalld/zones/${name}.xml`,
+      lang: 'xml',
+      description: name === ZONE ? 'Zone file (alternative to the script, inbound part)' : `Zone file for ${ifaces.join(', ')} (inbound part)`,
+      lines: x.lines,
+    };
+  };
 
   const pr = p.protections ?? {};
   if (pr.synFlood || pr.portScan || pr.autoBan) {
@@ -326,19 +475,14 @@ export function compileFirewalld(p: Project, target: Target): CompileResult {
   if (!opt.allowLoopback || !opt.allowEstablished || !opt.dropInvalid) {
     d.note('firewalld always accepts loopback and established traffic and drops invalid packets. Those toggles have no effect on this target.');
   }
-  if (p.policies.forward === 'accept' && !fwdSec) {
+  if (p.policies.forward === 'accept' && !policies.some((x) => x.name === 'ew-fwd')) {
     d.unsupported('firewalld rejects forwarded traffic between zones unless a policy allows it; a default-accept forward policy is not emitted.');
   }
 
   const files: OutFile[] = [
     { name: 'emberwall-firewalld.sh', path: './emberwall-firewalld.sh', lang: 'shell', description: 'firewall-cmd commands', lines: o.lines },
-    {
-      name: `${ZONE}.xml`,
-      path: `/etc/firewalld/zones/${ZONE}.xml`,
-      lang: 'xml',
-      description: 'Zone file (alternative to the script, inbound part)',
-      lines: x.lines,
-    },
+    zoneXml(ZONE, [], 'Emberwall'),
+    ...zones.map((z) => zoneXml(z.name, z.ifaces, `Emberwall ${z.from.replace(/"/g, '')}`)),
     safeApplyScript({
       toolLabel: target.label,
       backup: ['cp -a /etc/firewalld "$BACKUP/firewalld"', 'firewall-cmd --get-default-zone > "$BACKUP/default-zone"'],
@@ -352,7 +496,6 @@ export function compileFirewalld(p: Project, target: Target): CompileResult {
       persist: ['Everything is written with --permanent, so it already survives a reboot.'],
     }),
   ];
-  void direct;
   files.push(...blocklistUpdater(lists, 'firewalld', opt.ipv6));
   const sys = sysctlFile(p);
   if (sys) files.push(sys);

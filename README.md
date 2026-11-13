@@ -32,7 +32,7 @@ gives you the tooling around it:
 | **Kernel hardening** | A sysctl drop-in (reverse-path filter, SYN cookies, redirects, source routing) shipped with every build. |
 | **Compliance profiles** | CIS-style, PCI DSS-style and an internet-server baseline, each control with evidence; printable to PDF. |
 | **More targets** | pf (OpenBSD and FreeBSD), Windows Firewall (PowerShell), AWS / Azure / Google Cloud security groups (Terraform) and Kubernetes NetworkPolicy, each with a list of what does not carry over. |
-| **Fleet** | Many hosts, one policy: shared rules plus host-scoped rules, each host compiled for its own tool and version, with an Ansible inventory and playbook. |
+| **Fleet** | Many hosts, one policy: shared rules plus host-scoped rules, per-host overrides of policies, options and shared rules, each host compiled for its own tool and version, with an Ansible inventory and playbook. |
 | **Topology** | Diagram of sources, the firewall and the networks behind it, with the allowed flows drawn from the reachability engine. |
 | **Log analyzer** | Paste kernel firewall logs: top sources and ports, what the current ruleset would do with them, one-click block or allow. |
 | **Assistant (opt-in)** | With your own Anthropic API key: describe a policy in plain English and review proposed rules, or ask questions about the ruleset. Off until you add a key. |
@@ -196,8 +196,15 @@ Requires Node 18+ for the app and CLI; server mode needs Node 22.13+ (it uses No
 - When `iptables-restore`, `ip6tables-restore` and `nft` are installed, the tests feed the generated
   rulesets to `iptables-restore --test` and `nft -c -f` and require zero errors. They are skipped
   automatically where the binaries are missing or unusable.
-- During development the generated ufw commands and firewalld rich rules were also parsed with the
-  upstream ufw and firewalld parsers. That check is not part of the automated suite.
+- When firewalld's `firewall-offline-cmd` is installed, the tests run the generated firewalld
+  script against it (every template plus the edge-case project, for firewalld 2.1.1, 0.9.3 and
+  0.8.2) in a private config directory, and check that each zone gets its interfaces and that
+  zone-to-zone policies are created. ufw commands were parsed with the upstream ufw parser during
+  development.
+- With root, `ipset` and network namespaces available, the iptables blocklist and the ufw
+  `before.rules` fragment are loaded for real in a private namespace: ping from a listed address
+  is dropped, and goes through once the address leaves the set. The generated updater refreshes the
+  set from a downloaded list and keeps the project's own entries.
 - Every generated shell script passes `sh -n`; IPv4 sysctl keys were checked against a running kernel.
 - Extra targets: the Terraform output passes `terraform fmt -check` and `terraform validate`
   (aws, azurerm, google providers); the PowerShell passes the PowerShell 7 parser and runs against
@@ -214,15 +221,20 @@ Requires Node 18+ for the app and CLI; server mode needs Node 22.13+ (it uses No
   guarded push with real `nft`: confirm keeps the rules, no confirmation restores the old ones,
   and a ruleset that fails the check changes nothing. A browser run covers setup, users, adding a
   server, live read, audit, drift, push and confirm, and the viewer restrictions.
-  **Only the nftables push was run for real.** The iptables, ufw and firewalld push scripts pass a
-  shell syntax check but were not executed, and nothing was tested against a remote production
-  server or a real OpenSSH daemon.
+- `tests/ssh-e2e.test.ts` (opt-in: `EMBERWALL_E2E_SSH=1`, needs root) runs the guarded push for
+  **nftables, iptables, ufw and firewalld** against the system's real OpenSSH server inside a
+  private network namespace, so the SSH traffic itself crosses the firewall being pushed. For each
+  tool: a ruleset that keeps SSH open is confirmed over a new connection and stays; a ruleset that
+  shuts SSH out cannot be confirmed, and the server rolls itself back within the timeout, after
+  which SSH works again. It also applies the Terraform SSH-push export for real. CI runs it on
+  GitHub's Ubuntu runners (all but firewalld, whose package would start a daemon on the runner).
+  Nothing was tested against a remote production server.
 - Generated scripts are executed in tests with a deliberately hostile project (shell
   metacharacters in every name and field) to confirm nothing but firewall commands runs.
 - `npm run check:layout` checks every page at three sizes for overlapping cards and sideways scroll.
 - Importer tests compile each template, import the result and require that no access changes.
-- The generated Ansible playbooks pass `ansible-playbook --syntax-check`; the Terraform file has
-  not been run through `terraform validate`.
+- The generated Ansible playbooks pass `ansible-playbook --syntax-check`; the Terraform SSH-push
+  file passes `terraform validate` and `terraform fmt -check` for every template and tool.
 
 - Emitted syntax was read against the current manual pages: `nft(8)` 1.1.6, `iptables(8)` and
   `iptables-extensions(8)` 1.8.11, `ufw(8)` 0.36.2, and `firewall-cmd(1)`,
@@ -236,16 +248,17 @@ script, and keep console access the first time you load a ruleset on a remote ma
 - Per-client rate limits, connection limits, schedules, MAC and mark matches and the attack
   protections are native on nftables and iptables. ufw gets them through a `before.rules` fragment
   (its own `limit` has a fixed rate); firewalld cannot express most of them and says so.
-- Zones expand to interface and network matches. On firewalld the interface part is dropped
-  (firewalld binds interfaces to its own zones); the compiler notes report it.
-- The reachability matrix and semantic diff cover IPv4 paths for the sources and services the
-  rules mention; they are a model of the ruleset, not a scan of a live host.
+- Zones expand to interface and network matches. On firewalld each zone with interfaces becomes a
+  real firewalld zone (`ew-<name>`) with those interfaces bound, and so does any interface a rule
+  names outside a zone; forward and outbound rules go into zone-to-zone policies (firewalld 0.9+).
+  If NetworkManager manages an interface, also set the zone on its connection.
+- The reachability matrix and semantic diff cover IPv4 and IPv6 paths for the sources and services
+  the rules mention; they are a model of the ruleset, not a scan of a live host.
 - ufw and firewalld cannot express everything: ICMP rules and connection-state matches go to a
-  `before.rules` fragment for ufw; firewalld drops per-rule interface and state matches. Each case
-  is reported in the compiler notes rather than silently changed.
-- Blocklists on iptables and ufw rely on `ipset`. That syntax could not be run through
-  `iptables-restore --test` here (no `ipset` in the test environment); the nftables form was.
-  Country lists are downloaded by the server from a third-party site that Emberwall does not check.
+  `before.rules` fragment for ufw; firewalld drops per-rule state matches. Each case is reported in
+  the compiler notes rather than silently changed.
+- Blocklists on iptables and ufw rely on `ipset`. Country lists are downloaded by the server from a
+  third-party site that Emberwall does not check.
 - Compliance profiles are Emberwall's reading of each framework's firewall-related intent. They
   support a review; they are not official benchmark content or a certification.
 - The extra targets filter differently from Linux: cloud security groups and NetworkPolicy are
@@ -255,7 +268,11 @@ script, and keep console access the first time you load a ruleset on a remote ma
 - Rule and group names lose quote, backslash, backtick and `$` characters in generated output.
 - The live view models one rule list per direction. Servers with several nftables tables, custom
   chains or jumps are only partly represented; every line that was not understood is listed.
-- Fleet hosts share objects, zones and options; only rules and the target differ per host.
+- On a firewalld server the live view reads the default zone only. Rules in other zones (such as
+  the `ew-*` zones Emberwall creates for interfaces) and in policies are not imported, so they show
+  up as drift.
+- Fleet hosts share objects and zones. Per host you can set the target, override the default
+  policies and options, and leave shared rules out; anything else is shared.
 - Importers cover the common rule shapes. Negated matches, custom chains, jumps, firewalld
   services outside a built-in list and other unusual constructs are listed as skipped, not guessed.
 - Distribution versions are a snapshot; rolling releases move. Pick a custom version if yours differs.

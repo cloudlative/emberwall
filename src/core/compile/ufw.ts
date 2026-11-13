@@ -163,10 +163,12 @@ export function compileUfw(p: Project, target: Target): CompileResult {
     d.fallback('ufw has no blocklist command; blocklists are written to the before.rules fragment and use ipset. Create the sets before ufw starts (for example from /etc/ufw/before.init) with the commands at the top of the fragment.');
     for (const [fam, frag, pre] of [['ipv4', frag4, 'ufw'], ['ipv6', frag6, 'ufw6']] as const) {
       if (fam === 'ipv6' && !opt.ipv6) continue;
+      // Inserted at the top of ufw's chains, so blocked addresses are dropped before ufw accepts
+      // established traffic and ping (as the iptables and nftables outputs do).
       const sp = ipsetSpecs(lists, fam);
-      sp.input.forEach((x) => frag.push(`-A ${pre}-before-input ${x}`));
-      sp.forward.forEach((x) => frag.push(`-A ${pre}-before-forward ${x}`));
-      sp.output.forEach((x) => frag.push(`-A ${pre}-before-output ${x}`));
+      sp.input.forEach((x) => frag.push(`-I ${pre}-before-input ${x}`));
+      sp.forward.forEach((x) => frag.push(`-I ${pre}-before-forward ${x}`));
+      sp.output.forEach((x) => frag.push(`-I ${pre}-before-output ${x}`));
     }
   }
   const prot = protectionSpecs(p);

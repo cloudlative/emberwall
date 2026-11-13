@@ -1,8 +1,8 @@
 import { ArrowRight, Check, FlaskConical, Grid3x3, Layers, Plus, Trash2, X } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { uid, type Zone } from '../../core/model';
 import { parseCidr } from '../../core/net';
-import { buildAxes, reachability, runTests } from '../../core/reach';
+import { buildAxes, reachability, runTests, type ReachFamily } from '../../core/reach';
 import { useStore, useEffectiveProject } from '../../store/useStore';
 import { ActionBadge, Empty, PageHeader, Panel, Segmented, Stat, TagInput } from '../components/ui';
 
@@ -56,10 +56,11 @@ export function ZonesPage() {
 
 export function ReachabilityPage() {
   const project = useEffectiveProject();
+  const [family, setFamily] = useState<ReachFamily>('ipv4');
   const { axes, rows } = useMemo(() => {
     const a = buildAxes(project);
-    return { axes: a, rows: reachability(project, a) };
-  }, [project]);
+    return { axes: a, rows: reachability(project, a, family) };
+  }, [project, family]);
   const open = rows.reduce((n, r) => n + r.cells.filter((c) => c.verdict === 'accept').length, 0);
   const total = rows.length * axes.services.length;
   const show = (ruleId?: string) => {
@@ -70,9 +71,12 @@ export function ReachabilityPage() {
   };
   return (
     <div className="h-full overflow-y-auto pr-1">
-      <PageHeader title="Reachability" sub="Who can reach what. Every cell is a new connection sent through the simulator; click an open or blocked cell to see the rule behind it." />
+      <PageHeader title="Reachability" sub="Who can reach what. Every cell is a new connection sent through the simulator; click an open or blocked cell to see the rule behind it.">
+        <Segmented<ReachFamily> value={family} onChange={setFamily} options={[{ value: 'ipv4', label: 'IPv4' }, { value: 'ipv6', label: 'IPv6' }]} />
+      </PageHeader>
+      {family === 'ipv6' && !project.options.ipv6 && <p className="mb-3 text-[12.5px] text-mute">IPv6 is switched off in this project, so every IPv6 path is blocked.</p>}
       <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat label="Paths checked" value={total} sub={`${axes.sources.length} sources × ${axes.services.length} services`} />
+        <Stat label="Paths checked" value={total} sub={`${new Set(rows.map((r) => r.source.id)).size} sources × ${axes.services.length} services`} />
         <Stat label="Open" value={open} tone={open === 0 ? 'ok' : undefined} sub="accepted" />
         <Stat label="Blocked" value={total - open} sub="dropped or rejected" />
         <Stat label="Destinations" value={axes.targets.length} sub={axes.targets.map((t) => t.label).join(', ')} />
@@ -121,7 +125,7 @@ export function ReachabilityPage() {
           </Panel>
         );
       })}
-      <p className="pb-2 text-[12px] text-mute"><Grid3x3 size={12} className="mr-1 inline" />Sources are the Internet, your zones, address groups and addresses named in rules; services are the ports your rules mention. IPv4 paths only.</p>
+      <p className="pb-2 text-[12px] text-mute"><Grid3x3 size={12} className="mr-1 inline" />Sources are the Internet, your zones, address groups and addresses named in rules; services are the ports your rules mention. Switch between IPv4 and IPv6 at the top.</p>
     </div>
   );
 }

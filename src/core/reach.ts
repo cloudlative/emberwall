@@ -8,7 +8,10 @@ export interface Endpoint {
   id: string;
   label: string;
   detail: string;
+  /** Representative IPv4 address; empty when the endpoint only exists for IPv6. */
   addr: string;
+  /** Representative IPv6 address; empty when the endpoint only exists for IPv4. */
+  addr6: string;
   iface?: string;
   /** The outside zone itself: the same place as the Internet source. */
   outside?: boolean;
@@ -42,6 +45,11 @@ export interface ReachRow {
 }
 
 const INTERNET = '198.51.100.77';
+const INTERNET6 = '2001:db8:ffff::77';
+
+export type ReachFamily = 'ipv4' | 'ipv6';
+const isV6 = (a: string) => a.includes(':');
+const addrOf = (e: Endpoint, family: ReachFamily) => (family === 'ipv6' ? e.addr6 : e.addr);
 
 function serviceId(proto: string, port?: number) {
   return `${proto}/${port ?? ''}`;
@@ -52,32 +60,35 @@ export function buildAxes(...projects: Project[]): Axes {
   const sources = new Map<string, Endpoint>();
   const targets = new Map<string, Endpoint>();
   const services = new Map<string, Service>();
-  targets.set('host', { id: 'host', label: 'This host', detail: 'local services', addr: '192.0.2.1' });
+  targets.set('host', { id: 'host', label: 'This host', detail: 'local services', addr: '192.0.2.1', addr6: '2001:db8::1' });
 
   for (const p of projects) {
     const zoned = new Set(p.zones.flatMap((z) => z.interfaces));
     const wan = p.zones.find((z) => z.trust === 'untrusted');
     if (!sources.has('internet')) {
-      sources.set('internet', { id: 'internet', label: 'Internet', detail: wan?.interfaces[0] ? `via ${wan.interfaces[0]}` : 'any outside address', addr: INTERNET, iface: wan?.interfaces[0] });
+      sources.set('internet', { id: 'internet', label: 'Internet', detail: wan?.interfaces[0] ? `via ${wan.interfaces[0]}` : 'any outside address', addr: INTERNET, addr6: INTERNET6, iface: wan?.interfaces[0] });
     }
     for (const z of p.zones) {
-      const addr = z.networks.map(representative).find(Boolean) ?? (z.trust === 'untrusted' ? INTERNET : '10.255.0.2');
-      const ep: Endpoint = { outside: z === wan && z.networks.length === 0, id: `zone:${z.id}`, label: z.name, detail: [z.interfaces.join(', '), z.networks.join(', ')].filter(Boolean).join(' · ') || 'zone', addr, iface: z.interfaces[0] };
+      const addr = z.networks.filter((n) => !isV6(n)).map(representative).find(Boolean) ?? (z.trust === 'untrusted' ? INTERNET : '10.255.0.2');
+      const addr6 = z.networks.filter(isV6).map(representative).find(Boolean) ?? (z.trust === 'untrusted' ? INTERNET6 : 'fd00:ffff::2');
+      const ep: Endpoint = { outside: z === wan && z.networks.length === 0, id: `zone:${z.id}`, label: z.name, detail: [z.interfaces.join(', '), z.networks.join(', ')].filter(Boolean).join(' · ') || 'zone', addr, addr6, iface: z.interfaces[0] };
       // The outside zone without networks of its own is already covered by "Internet" as a source.
       if (!(z === wan && z.networks.length === 0) && !sources.has(ep.id)) sources.set(ep.id, ep);
       if (!targets.has(ep.id)) targets.set(ep.id, ep);
     }
     for (const g of p.addressGroups) {
-      const addr = expandAddrs(g.members, p).filter((a) => !a.includes(':')).map(representative).find(Boolean);
-      if (addr && !sources.has(`group:${g.id}`)) sources.set(`group:${g.id}`, { id: `group:${g.id}`, label: g.name, detail: g.members.slice(0, 2).join(', '), addr });
+      const members = expandAddrs(g.members, p);
+      const addr = members.filter((a) => !isV6(a)).map(representative).find(Boolean) ?? '';
+      const addr6 = members.filter(isV6).map(representative).find(Boolean) ?? '';
+      if ((addr || addr6) && !sources.has(`group:${g.id}`)) sources.set(`group:${g.id}`, { id: `group:${g.id}`, label: g.name, detail: g.members.slice(0, 2).join(', '), addr, addr6 });
     }
     for (const r of p.rules.filter((x) => x.enabled)) {
       if (r.inIface && !zoned.has(r.inIface) && !sources.has(`if:${r.inIface}`)) {
-        sources.set(`if:${r.inIface}`, { id: `if:${r.inIface}`, label: `Via ${r.inIface}`, detail: 'any host on that interface', addr: '10.254.0.2', iface: r.inIface });
+        sources.set(`if:${r.inIface}`, { id: `if:${r.inIface}`, label: `Via ${r.inIface}`, detail: 'any host on that interface', addr: '10.254.0.2', addr6: 'fd00:fffe::2', iface: r.inIface });
       }
-      for (const a of expandAddrs(r.src, p).filter((x) => !x.includes(':') && !r.src.some((s) => s.startsWith('@')))) {
+      for (const a of expandAddrs(r.src, p).filter(() => !r.src.some((s) => s.startsWith('@')))) {
         const rep = representative(a);
-        if (rep && !sources.has(`addr:${a}`)) sources.set(`addr:${a}`, { id: `addr:${a}`, label: a, detail: 'source named in a rule', addr: rep });
+        if (rep && !sources.has(`addr:${a}`)) sources.set(`addr:${a}`, { id: `addr:${a}`, label: a, detail: 'source named in a rule', addr: isV6(a) ? '' : rep, addr6: isV6(a) ? rep : '' });
       }
       if (r.direction === 'out') continue;
       if (r.proto === 'icmp') services.set('icmp/', { id: 'icmp/', label: 'Ping', proto: 'icmp' });
@@ -102,12 +113,12 @@ export function buildAxes(...projects: Project[]): Axes {
   return { sources: [...sources.values()].slice(0, 16), targets: [...targets.values()], services: list };
 }
 
-export function packetFor(source: Endpoint, target: Endpoint, service: Service): Packet {
+export function packetFor(source: Endpoint, target: Endpoint, service: Service, family: ReachFamily = 'ipv4'): Packet {
   const forward = target.id !== 'host';
   return {
     direction: forward ? 'forward' : 'in',
-    src: source.addr,
-    dst: target.addr,
+    src: addrOf(source, family),
+    dst: addrOf(target, family),
     proto: service.proto,
     port: service.port,
     state: 'new',
@@ -116,17 +127,27 @@ export function packetFor(source: Endpoint, target: Endpoint, service: Service):
   };
 }
 
-export function reachability(p: Project, axes: Axes = buildAxes(p)): ReachRow[] {
-  const rows: ReachRow[] = [];
+/** Endpoint pairs worth a row: both ends have an address in the family, and they differ. */
+function pairs(axes: Axes, family: ReachFamily): [Endpoint, Endpoint][] {
+  const out: [Endpoint, Endpoint][] = [];
   for (const target of axes.targets) {
     for (const source of axes.sources) {
       if (source.id === target.id || (source.id === 'internet' && target.outside)) continue;
-      const cells = axes.services.map((svc) => {
-        const r = simulate(p, packetFor(source, target, svc));
-        return { verdict: r.verdict, decidedBy: r.decidedBy, ruleId: r.ruleId, limited: r.rateLimited };
-      });
-      rows.push({ target, source, cells });
+      if (!addrOf(source, family) || !addrOf(target, family)) continue;
+      out.push([source, target]);
     }
+  }
+  return out;
+}
+
+export function reachability(p: Project, axes: Axes = buildAxes(p), family: ReachFamily = 'ipv4'): ReachRow[] {
+  const rows: ReachRow[] = [];
+  for (const [source, target] of pairs(axes, family)) {
+    const cells = axes.services.map((svc) => {
+      const r = simulate(p, packetFor(source, target, svc, family));
+      return { verdict: r.verdict, decidedBy: r.decidedBy, ruleId: r.ruleId, limited: r.rateLimited };
+    });
+    rows.push({ target, source, cells });
   }
   return rows;
 }
@@ -161,22 +182,25 @@ export interface AccessChange {
   /** opened: was blocked, now accepted. closed: the reverse. */
   kind: 'opened' | 'closed';
   decidedBy: string;
+  family: ReachFamily;
 }
 
 /** What traffic is treated differently by `after` compared with `before`. */
 export function semanticDiff(before: Project, after: Project): AccessChange[] {
   const axes = buildAxes(before, after);
-  const a = reachability(before, axes);
-  const b = reachability(after, axes);
   const out: AccessChange[] = [];
-  a.forEach((row, i) => {
-    row.cells.forEach((cell, j) => {
-      const next = b[i].cells[j];
-      const was = cell.verdict === 'accept';
-      const now = next.verdict === 'accept';
-      if (was === now) return;
-      out.push({ source: row.source, target: row.target, service: axes.services[j], before: cell.verdict, after: next.verdict, kind: now ? 'opened' : 'closed', decidedBy: next.decidedBy });
+  for (const family of ['ipv4', 'ipv6'] as const) {
+    const a = reachability(before, axes, family);
+    const b = reachability(after, axes, family);
+    a.forEach((row, i) => {
+      row.cells.forEach((cell, j) => {
+        const next = b[i].cells[j];
+        const was = cell.verdict === 'accept';
+        const now = next.verdict === 'accept';
+        if (was === now) return;
+        out.push({ source: row.source, target: row.target, service: axes.services[j], before: cell.verdict, after: next.verdict, kind: now ? 'opened' : 'closed', decidedBy: next.decidedBy, family });
+      });
     });
-  });
+  }
   return out;
 }

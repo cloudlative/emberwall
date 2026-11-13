@@ -45,6 +45,35 @@ describe('fleet', () => {
   });
 });
 
+describe('fleet host overrides', () => {
+  it('applies policy, option and rule overrides to one host only', () => {
+    const p = fleet();
+    const shared = p.rules.find((r) => !r.hosts)!;
+    p.hosts[0].overrides = { policies: { out: 'drop' }, options: { logDropped: true, ipv6: false }, excludeRules: [shared.id] };
+    const web = projectForHost(p, 'web1');
+    expect(web.policies.out).toBe('drop');
+    expect(web.policies.in).toBe(p.policies.in);
+    expect(web.options.logDropped).toBe(true);
+    expect(web.options.ipv6).toBe(false);
+    expect(web.rules.some((r) => r.id === shared.id)).toBe(false);
+    const legacy = projectForHost(p, 'old1');
+    expect(legacy.policies.out).toBe(p.policies.out);
+    expect(legacy.rules.some((r) => r.id === shared.id)).toBe(true);
+    // The build reflects it: the nftables output chain drops by default and has no IPv6-only lines.
+    const out = fileText(buildFleet(p)[0].result.files[0]);
+    expect(out).toMatch(/hook output priority filter; policy drop;/);
+  });
+
+  it('survives coerceProject and drops junk values', () => {
+    const p = fleet();
+    (p.hosts[0] as any).overrides = { policies: { in: 'accept', out: 'maybe' }, options: { ipv6: false, nope: true, logDropped: 'yes' }, excludeRules: ['r1', 7] };
+    (p.hosts[1] as any).overrides = { policies: {}, options: {} };
+    const c = coerceProject(JSON.parse(JSON.stringify(p)));
+    expect(c.hosts[0].overrides).toEqual({ policies: { in: 'accept' }, options: { ipv6: false }, excludeRules: ['r1', '7'] });
+    expect(c.hosts[1].overrides).toBeUndefined();
+  });
+});
+
 describe('log analyzer', () => {
   const log = `Nov 12 14:02:11 web1 kernel: [ 9123.11] ew-drop-in: IN=eth0 OUT= MAC=52:54 SRC=203.0.113.45 DST=192.0.2.10 LEN=60 PROTO=TCP SPT=51422 DPT=23 SYN
 Nov 12 14:02:12 web1 kernel: [ 9124.02] ew-drop-in: IN=eth0 OUT= SRC=203.0.113.45 DST=192.0.2.10 PROTO=TCP SPT=51423 DPT=3389 SYN

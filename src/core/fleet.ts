@@ -12,7 +12,15 @@ export function projectForHost(p: Project, hostId: string | null): Project {
   if (!hostId) return p;
   const host = p.hosts.find((h) => h.id === hostId);
   if (!host) return p;
-  return { ...p, name: `${p.name} - ${host.name}`, rules: p.rules.filter((r) => appliesTo(r, host.id)) };
+  const o = host.overrides ?? {};
+  const excluded = new Set(o.excludeRules ?? []);
+  return {
+    ...p,
+    name: `${p.name} - ${host.name}`,
+    policies: { ...p.policies, ...o.policies },
+    options: { ...p.options, ...o.options },
+    rules: p.rules.filter((r) => appliesTo(r, host.id) && !excluded.has(r.id)),
+  };
 }
 
 export interface HostBuild {

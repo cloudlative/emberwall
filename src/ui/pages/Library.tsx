@@ -178,7 +178,7 @@ export function SnapshotsPage() {
                   {diff.access.map((c, i) => (
                     <li key={i} className="flex items-center gap-2">
                       <span className={`badge ${c.kind === 'opened' ? 'badge-warn' : 'badge-info'}`}>{c.kind}</span>
-                      <span>{c.source.label} → {c.target.label}, {c.service.label}</span>
+                      <span>{c.source.label} → {c.target.label}, {c.service.label}{c.family === 'ipv6' && <span className="badge badge-mute ml-1.5">IPv6</span>}</span>
                       <span className="text-mute">now decided by the {c.decidedBy}</span>
                     </li>
                   ))}

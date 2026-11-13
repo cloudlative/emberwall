@@ -476,7 +476,7 @@ export function LivePage() {
                   <ul className="space-y-1.5 text-[12.5px]">{drift.access.map((c, i) => (
                     <li key={i} className="tile flex flex-wrap items-center gap-2 px-3 py-2">
                       <span className={`badge ${c.kind === 'opened' ? 'badge-warn' : 'badge-info'}`}>{c.kind === 'opened' ? 'project opens' : 'project closes'}</span>
-                      <span>{c.source.label} → {c.target.label}, {c.service.label}</span>
+                      <span>{c.source.label} → {c.target.label}, {c.service.label}{c.family === 'ipv6' && <span className="badge badge-mute ml-1.5">IPv6</span>}</span>
                       <span className="text-mute">live: {c.before}, project: {c.after}</span>
                     </li>
                   ))}</ul>

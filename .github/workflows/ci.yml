@@ -19,3 +19,21 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+
+  # Generated rulesets loaded by the real tools, and guarded pushes over real OpenSSH into private
+  # network namespaces (see tests/ssh-e2e.test.ts). Needs root, so it runs under sudo. firewalld is
+  # left out here: installing it would start the daemon on the runner itself.
+  real-tools:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: sudo apt-get update && sudo apt-get install -y ipset ufw nftables iptables openssh-server iproute2 iputils-ping curl
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - run: sudo -E env "PATH=$PATH" EMBERWALL_E2E_SSH=1 npx vitest run tests/realtools.test.ts tests/ssh-e2e.test.ts

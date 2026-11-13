@@ -220,3 +220,44 @@ describe('automation export and compatibility', () => {
     expect(p.tests).toEqual([]);
   });
 });
+
+describe('IPv6 reachability', () => {
+  function v6Project() {
+    const p = emptyProject('v6');
+    p.rules = [
+      newRule({ name: 'ssh from v6 office', proto: 'tcp', ports: ['22'], src: ['2001:db8:10::/48'] }),
+      newRule({ name: 'web', proto: 'tcp', ports: ['443'] }),
+      newRule({ name: 'v4 only dns', proto: 'udp', ports: ['53'], family: 'ipv4' }),
+    ];
+    return p;
+  }
+
+  it('builds IPv6 rows from IPv6 sources and simulates IPv6 packets', () => {
+    const p = v6Project();
+    const axes = buildAxes(p);
+    const rows = reachability(p, axes, 'ipv6');
+    const col = (proto: string, port: number) => axes.services.findIndex((s) => s.proto === proto && s.port === port);
+    const office = rows.find((r) => r.source.id === 'addr:2001:db8:10::/48')!;
+    const internet = rows.find((r) => r.source.id === 'internet')!;
+    expect(office.cells[col('tcp', 22)].verdict).toBe('accept');
+    expect(internet.cells[col('tcp', 22)].verdict).toBe('drop');
+    expect(internet.cells[col('tcp', 443)].verdict).toBe('accept');
+    // The IPv4-only rule does not open DNS over IPv6.
+    expect(internet.cells[col('udp', 53)].verdict).toBe('drop');
+    expect(reachability(p, axes, 'ipv4').find((r) => r.source.id === 'internet')!.cells[col('udp', 53)].verdict).toBe('accept');
+    // An IPv6-only source has no IPv4 row.
+    expect(reachability(p, axes, 'ipv4').some((r) => r.source.id === 'addr:2001:db8:10::/48')).toBe(false);
+  });
+
+  it('semantic diff reports IPv6-only changes with their family', () => {
+    const before = v6Project();
+    const after = { ...before, options: { ...before.options, ipv6: false } };
+    const changes = semanticDiff(before, after);
+    expect(changes.length).toBeGreaterThan(0);
+    expect(changes.every((c) => c.family === 'ipv6' && c.kind === 'closed')).toBe(true);
+    const widened = { ...before, rules: before.rules.map((r) => (r.name === 'v4 only dns' ? { ...r, family: 'both' as const } : r)) };
+    const opened = semanticDiff(before, widened);
+    expect(opened.length).toBeGreaterThan(0);
+    expect(opened.every((c) => c.family === 'ipv6' && c.kind === 'opened' && c.service.port === 53)).toBe(true);
+  });
+});

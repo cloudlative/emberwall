@@ -65,6 +65,15 @@ export interface Host {
   address?: string;
   note?: string;
   target: { distro: string; tool: 'iptables' | 'nftables' | 'ufw' | 'firewalld'; version: string };
+  /** Where this host differs from the shared policy. */
+  overrides?: HostOverrides;
+}
+
+export interface HostOverrides {
+  policies?: Partial<Record<Direction, Policy>>;
+  options?: Partial<Options>;
+  /** Shared rules this host leaves out. */
+  excludeRules?: string[];
 }
 
 export interface PolicyTest {
@@ -279,9 +288,32 @@ export function coerceProject(raw: unknown): Project {
       address: typeof h.address === 'string' && h.address ? h.address : undefined,
       note: typeof h.note === 'string' && h.note ? h.note : undefined,
       target: { distro: String(h.target.distro ?? 'custom'), tool: h.target.tool, version: String(h.target.version ?? '') },
+      overrides: coerceOverrides(h.overrides),
     })),
     tests: Array.isArray(r.tests) ? r.tests.filter((t: any) => t && t.packet).map((t: any) => ({ ...t, id: String(t.id ?? uid('t')) })) : [],
   };
+}
+
+const DIRECTIONS: Direction[] = ['in', 'out', 'forward'];
+const OPTION_KEYS: (keyof Options)[] = ['allowLoopback', 'allowEstablished', 'dropInvalid', 'allowIcmp', 'logDropped', 'ipv6', 'forwarding'];
+
+function coerceOverrides(raw: any): HostOverrides | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const policies: Partial<Record<Direction, Policy>> = {};
+  for (const dir of DIRECTIONS) if (raw.policies?.[dir] === 'accept' || raw.policies?.[dir] === 'drop') policies[dir] = raw.policies[dir];
+  const options: Partial<Options> = {};
+  for (const k of OPTION_KEYS) if (typeof raw.options?.[k] === 'boolean') options[k] = raw.options[k];
+  const excludeRules = Array.isArray(raw.excludeRules) ? raw.excludeRules.map(String) : [];
+  const out: HostOverrides = {};
+  if (Object.keys(policies).length) out.policies = policies;
+  if (Object.keys(options).length) out.options = options;
+  if (excludeRules.length) out.excludeRules = excludeRules;
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** How many settings a host overrides. */
+export function overrideCount(o?: HostOverrides): number {
+  return Object.keys(o?.policies ?? {}).length + Object.keys(o?.options ?? {}).length + (o?.excludeRules?.length ?? 0);
 }
 
 export const ICMP_TYPES = [

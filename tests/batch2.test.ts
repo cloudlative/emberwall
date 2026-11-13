@@ -56,7 +56,7 @@ describe('blocklists', () => {
     expect(fileText(ipt.files[0])).toContain('-A OUTPUT -m set --match-set ew_bl_country_xx_v4 dst');
     expect(fileText(ipt.files[2])).toContain('ipset create ew_bl_known_scanners_v4 hash:net family inet -exist');
     const ufw = compile(withLists(), target('ufw', '0.36.2'));
-    expect(fileText(ufw.files.find((f) => f.name === 'before.rules.fragment')!)).toContain('-A ufw-before-input -m set --match-set ew_bl_known_scanners_v4 src');
+    expect(fileText(ufw.files.find((f) => f.name === 'before.rules.fragment')!)).toContain('-I ufw-before-input -m set --match-set ew_bl_known_scanners_v4 src');
     const fwd = fileText(compile(withLists(), target('firewalld', '2.3.1')).files[0]);
     expect(fwd).toContain('--new-ipset=ew_bl_known_scanners_v6 --type=hash:net --option=family=inet6');
     expect(fwd).toContain(`rule priority="-32500" family="ipv4" source ipset="ew_bl_known_scanners_v4" drop`);

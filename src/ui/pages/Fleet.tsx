@@ -1,14 +1,104 @@
-import { ArrowRight, Ban, Download, Eye, FileSearch, Globe, Plus, Server, Shield, Trash2 } from 'lucide-react';
+import { ArrowRight, Ban, Download, Eye, FileSearch, Globe, Plus, Server, Shield, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { fileText } from '../../core/compile';
 import { buildFleet, fleetAnsible, fleetFiles, hostDir } from '../../core/fleet';
 import { grade } from '../../core/lint';
 import { analyzeLogs, verdictNow } from '../../core/logs';
-import { newRule, uid, type Host } from '../../core/model';
+import { DIRECTION_LABEL, newRule, overrideCount, uid, type Direction, type Host, type HostOverrides, type Options, type Project } from '../../core/model';
 import { buildAxes, reachability } from '../../core/reach';
 import { DISTROS, TOOL_LABEL, type Tool } from '../../core/targets';
 import { download, useEffectiveProject, useStore } from '../../store/useStore';
 import { ActionBadge, Empty, PageHeader, Panel, Stat } from '../components/ui';
+
+const OPTION_LABEL: Record<keyof Options, string> = {
+  allowLoopback: 'Allow loopback',
+  allowEstablished: 'Allow established',
+  dropInvalid: 'Drop invalid',
+  allowIcmp: 'Allow ping / ICMPv6',
+  logDropped: 'Log dropped',
+  ipv6: 'IPv6',
+  forwarding: 'Forwarding',
+};
+
+/** Per-host differences from the shared policy. "Shared" means the host inherits the project value. */
+function OverridesEditor({ host, project, onChange }: { host: Host; project: Project; onChange: (o: HostOverrides | undefined) => void }) {
+  const o = host.overrides ?? {};
+  const put = (next: HostOverrides) => {
+    const clean: HostOverrides = {};
+    if (next.policies && Object.keys(next.policies).length) clean.policies = next.policies;
+    if (next.options && Object.keys(next.options).length) clean.options = next.options;
+    if (next.excludeRules && next.excludeRules.length) clean.excludeRules = next.excludeRules;
+    onChange(Object.keys(clean).length ? clean : undefined);
+  };
+  const setPolicy = (dir: Direction, v: string) => {
+    const policies = { ...o.policies };
+    if (v === '') delete policies[dir];
+    else policies[dir] = v as 'accept' | 'drop';
+    put({ ...o, policies });
+  };
+  const setOption = (k: keyof Options, v: string) => {
+    const options = { ...o.options };
+    if (v === '') delete options[k];
+    else options[k] = v === 'on';
+    put({ ...o, options });
+  };
+  const sharedRules = project.rules.filter((r) => !r.hosts || r.hosts.length === 0);
+  const excluded = new Set(o.excludeRules ?? []);
+  const toggleRule = (id: string) => put({ ...o, excludeRules: excluded.has(id) ? [...excluded].filter((x) => x !== id) : [...excluded, id] });
+  const onOff = (b: boolean) => (b ? 'on' : 'off');
+  return (
+    <div className="mt-1 grid basis-full gap-4 border-t pt-3 md:grid-cols-3" style={{ borderColor: 'var(--line)' }}>
+      <div>
+        <div className="label">Default policies</div>
+        <div className="space-y-1.5">
+          {(['in', 'out', 'forward'] as Direction[]).map((dir) => (
+            <label key={dir} className="flex items-center justify-between gap-2 text-[12.5px]">
+              <span>{DIRECTION_LABEL[dir]}</span>
+              <select aria-label={`${DIRECTION_LABEL[dir]} policy for ${host.name}`} className="field !w-40 !py-1" value={o.policies?.[dir] ?? ''} onChange={(e) => setPolicy(dir, e.target.value)}>
+                <option value="">Shared ({project.policies[dir]})</option>
+                <option value="accept">accept</option>
+                <option value="drop">drop</option>
+              </select>
+            </label>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className="label">Options</div>
+        <div className="space-y-1.5">
+          {(Object.keys(OPTION_LABEL) as (keyof Options)[]).map((k) => (
+            <label key={k} className="flex items-center justify-between gap-2 text-[12.5px]">
+              <span>{OPTION_LABEL[k]}</span>
+              <select aria-label={`${OPTION_LABEL[k]} for ${host.name}`} className="field !w-40 !py-1" value={o.options?.[k] === undefined ? '' : onOff(o.options[k]!)} onChange={(e) => setOption(k, e.target.value)}>
+                <option value="">Shared ({onOff(project.options[k])})</option>
+                <option value="on">on</option>
+                <option value="off">off</option>
+              </select>
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="min-w-0">
+        <div className="label">Shared rules on this host</div>
+        {sharedRules.length === 0 ? (
+          <p className="text-[12.5px] text-mute">No shared rules.</p>
+        ) : (
+          <ul className="max-h-64 space-y-1 overflow-y-auto pr-1">
+            {sharedRules.map((r) => (
+              <li key={r.id}>
+                <label className="flex items-center gap-2 text-[12.5px]">
+                  <input type="checkbox" checked={!excluded.has(r.id)} onChange={() => toggleRule(r.id)} aria-label={`Apply "${r.name}" on ${host.name}`} />
+                  <span className={`truncate ${excluded.has(r.id) ? 'text-mute line-through' : ''}`}>{r.name}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-1.5 text-[11.5px] text-mute">Rules scoped to particular hosts are set in the rule editor.</p>
+      </div>
+    </div>
+  );
+}
 
 /** A POSIX shell archive: one file that recreates the whole fleet directory tree. */
 function shellArchive(files: { path: string; text: string }[]): string {
@@ -31,6 +121,8 @@ export function FleetPage() {
   const set = (id: string, patch: Partial<Host>) => update((p) => ({ ...p, hosts: p.hosts.map((h) => (h.id === id ? { ...h, ...patch } : h)) }));
   const add = () => update((p) => ({ ...p, hosts: [...p.hosts, { id: uid('h'), name: `host-${p.hosts.length + 1}`, target: { distro: 'ubuntu-24.04', tool: 'nftables', version: '' } }] }));
   const shared = project.rules.filter((r) => !r.hosts || r.hosts.length === 0).length;
+  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+  const toggleOpen = (id: string) => setOpenIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   return (
     <div className="h-full overflow-y-auto pr-1">
@@ -74,6 +166,9 @@ export function FleetPage() {
                     <span className={`badge ${b.score >= 75 ? 'badge-ok' : b.score >= 50 ? 'badge-warn' : 'badge-bad'}`}>score {b.score} · {grade(b.score)}</span>
                     {b.fallbacks > 0 && <span className="badge badge-warn">{b.fallbacks} adapted</span>}
                     {b.errors > 0 && <span className="badge badge-bad">{b.errors} errors</span>}
+                    <button className="btn" aria-expanded={openIds.has(h.id)} onClick={() => toggleOpen(h.id)}>
+                      <SlidersHorizontal size={14} /> Overrides{overrideCount(h.overrides) > 0 && <span className="badge badge-info">{overrideCount(h.overrides)}</span>}
+                    </button>
                     <button className="btn" onClick={() => { setActiveHost(h.id); setPage('build'); }}><Eye size={14} /> Open</button>
                     <button className="btn btn-icon" aria-label={`Download files for ${h.name}`} title="Download this host's main file" onClick={() => download(`${hostDir(h)}-${b.result.files[0].name}`, fileText(b.result.files[0]))}><Download size={14} /></button>
                     <button className="btn btn-ghost btn-icon" aria-label="Delete host" onClick={() => {
@@ -81,6 +176,7 @@ export function FleetPage() {
                       update((p) => ({ ...p, hosts: p.hosts.filter((x) => x.id !== h.id), rules: p.rules.map((r) => (r.hosts ? { ...r, hosts: r.hosts.filter((x) => x !== h.id) } : r)) }));
                     }}><Trash2 size={14} /></button>
                   </div>
+                  {openIds.has(h.id) && <OverridesEditor host={h} project={project} onChange={(overrides) => set(h.id, { overrides })} />}
                 </section>
               );
             })}
@@ -88,6 +184,7 @@ export function FleetPage() {
           <Panel className="mt-4" title="Rolling it out" hint="The bundle contains hosts/<name>/ for every machine, an Ansible inventory and a playbook">
             <ol className="list-decimal space-y-1 pl-4 text-[12.5px] leading-relaxed text-ink/90">
               <li>Scope a rule to hosts in the rule editor under <b>Advanced matches → Hosts</b>; unscoped rules go everywhere.</li>
+              <li>Use <b>Overrides</b> on a host to change its default policies or options, or to leave shared rules out.</li>
               <li>Pick a host in the top bar to see its rules, output, audit and simulator results.</li>
               <li>Download the bundle, run <code className="chip">sh emberwall-fleet.sh</code> to unpack, then <code className="chip">ansible-playbook -i inventory.ini fleet-playbook.yml --limit one-host</code>.</li>
             </ol>
