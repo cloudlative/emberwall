@@ -2,7 +2,7 @@
 # Emberwall installer: downloads the single-file binary for this machine from GitHub Releases,
 # verifies it against the release's SHA256SUMS, and installs it as "emberwall".
 #
-#   curl -fsSL https://cloudlative.github.io/emberwall/install.sh | sh
+#   curl -fsSL https://emberwall.cloudlative.com/install.sh | sh
 #
 # Options (environment variables):
 #   EMBERWALL_VERSION      a release tag such as v1.0.0 (default: the latest release)
@@ -80,4 +80,4 @@ case ":$PATH:" in
   *":$dir:"*) ;;
   *) say "Note: $dir is not on your PATH. Add it, for example: export PATH=\"$dir:\$PATH\"" ;;
 esac
-say "Next: emberwall --help   ·   docs: https://cloudlative.github.io/emberwall/docs/"
+say "Next: emberwall --help   ·   docs: https://emberwall.cloudlative.com/docs/"

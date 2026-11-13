@@ -1,6 +1,6 @@
 // Builds the website into dist-site/.  Run: npm run site:build
 // The app itself (npm run build -> dist/) is copied into dist-site/app/ when it exists.
-// Set EMBERWALL_SITE_URL for a custom domain (default https://cloudlative.github.io/emberwall/).
+// Set EMBERWALL_SITE_URL for a custom domain (default https://emberwall.cloudlative.com/).
 
 // The CLI module runs itself when its process looks like a CLI run; vite-node does. Imports below
 // are dynamic so this is set first.
@@ -40,7 +40,7 @@ const fonts: [string, string][] = [
 mkdirSync(join(out, 'assets', 'fonts'), { recursive: true });
 for (const [from, to] of fonts) cpSync(join(root, 'node_modules', from), join(out, 'assets', 'fonts', to));
 cpSync(join(root, 'public', 'favicon.svg'), join(out, 'favicon.svg'));
-write('install.sh', readFileSync(join(here, 'assets', 'install.sh'), 'utf8').replaceAll('https://cloudlative.github.io/emberwall/', SITE_URL));
+write('install.sh', readFileSync(join(here, 'assets', 'install.sh'), 'utf8').replaceAll('https://emberwall.cloudlative.com/', SITE_URL));
 
 // ---------- pages ----------
 const homeData = {

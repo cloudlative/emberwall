@@ -7,7 +7,7 @@ import { esc } from './highlight';
 export const REPO = 'cloudlative/emberwall';
 export const REPO_URL = `https://github.com/${REPO}`;
 /** Absolute URL of the site root, used only where a link must be absolute (canonical, sitemap, OG, install). */
-export const SITE_URL = (process.env.EMBERWALL_SITE_URL ?? 'https://cloudlative.github.io/emberwall/').replace(/\/?$/, '/');
+export const SITE_URL = (process.env.EMBERWALL_SITE_URL ?? 'https://emberwall.cloudlative.com/').replace(/\/?$/, '/');
 
 /** An inline Lucide icon (the same icon set the app uses). */
 export function icon(name: keyof typeof Lucide | string, size = 18, stroke = 1.75): string {

@@ -34,7 +34,7 @@ jobs:
       - run: npm run build
       - run: npm run site:build
         env:
-          EMBERWALL_SITE_URL: ${{ vars.SITE_URL || 'https://cloudlative.github.io/emberwall/' }}
+          EMBERWALL_SITE_URL: ${{ vars.SITE_URL || 'https://emberwall.cloudlative.com/' }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
