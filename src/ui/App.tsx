@@ -1,6 +1,6 @@
 import {
   Activity as ActivityIcon, ArrowLeftRight, Ban, BadgeCheck, Cloud, FolderGit2, HardDrive, Radio, Users, Sparkles, Wand2, Camera, Check, Cpu, FileSearch, Server, Share2, ClipboardCheck, Columns2, Command, FlaskConical, FolderInput, Gauge, Grid3x3, Hammer, Info, Layers, LayoutDashboard, LayoutTemplate,
-  ListChecks, Moon, Network, Plus, Redo2, Search, ShieldAlert, Sun, Table2, Undo2, Waypoints, XCircle,
+  Globe, ListChecks, Moon, Network, Plus, Redo2, Search, ShieldAlert, Sun, Table2, Undo2, Waypoints, XCircle,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { score } from '../core/lint';
@@ -77,6 +77,9 @@ const PAGES: Partial<Record<PageId, () => JSX.Element>> = {
   fleet: FleetPage, topology: TopologyPage, logs: LogsPage, assistant: AssistantPage, targets: TargetsPage,
   servers: ServersPage, live: LivePage, projects: ProjectsPage, users: UsersPage, activity: ActivityPage,
 };
+
+/** The product website: the page this app is served under (/app/), else the public site (server mode). */
+const WEBSITE = typeof location !== 'undefined' && /\/app\/?$/.test(location.pathname.replace(/index\.html$/, '')) ? '../' : 'https://emberwall.cloudlative.com/';
 
 function Logo() {
   return (
@@ -294,6 +297,12 @@ export function App() {
               </div>
             ))}
           </nav>
+          <div className="mx-2 mt-2 border-t border-[color:var(--line)] pt-2">
+            <a className="nav-item justify-center no-underline lg:justify-start" href={WEBSITE} title="Emberwall website and documentation">
+              <Globe size={16} />
+              <span className="hidden flex-1 text-left lg:inline">Website &amp; docs</span>
+            </a>
+          </div>
           <div className="mt-3 hidden px-4 text-[11px] leading-snug text-mute lg:block">{mode === 'server' ? 'Team server: saved projects, inventory and pushes go through this Emberwall server.' : 'Runs entirely in your browser. Rulesets are never uploaded.'}</div>
         </aside>
 
